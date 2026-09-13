@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AlertoPH - Hazard-Aware Route Advisory System</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <h1><i class="fas fa-exclamation-triangle"></i> AlertoPH</h1>
+                <p class="tagline">Earthquake, Weather & Hazard-Aware Route Advisory for the Philippines</p>
+            </div>
+            <div class="language-toggle">
+                <button id="language-btn" class="btn btn-outline">
+                    <i class="fas fa-language"></i> Switch to Filipino
+                </button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <section class="location-search">
+                <h2><i class="fas fa-search-location"></i> Location Advisory</h2>
+                <div class="search-form">
+                    <div class="input-group">
+                        <input type="text" id="location-input" placeholder="Enter city or province (e.g., Manila, Cebu)">
+                        <button id="search-btn" class="btn btn-primary">
+                            <i class="fas fa-search"></i> Get Advisory
+                        </button>
+                    </div>
+                    <div class="input-group">
+                        <label>Or use coordinates:</label>
+                        <div class="coordinate-inputs">
+                            <input type="number" id="lat-input" placeholder="Latitude" step="any">
+                            <input type="number" id="lng-input" placeholder="Longitude" step="any">
+                            <button id="coord-search-btn" class="btn btn-secondary">
+                                <i class="fas fa-crosshairs"></i> Use Coordinates
+                            </button>
+                            <button id="pick-advisory-location" class="btn btn-secondary">
+                                <i class="fas fa-map-marker-alt"></i> Pick on Map
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="advisory-results" id="advisory-results" style="display: none;">
+                <h2><i class="fas fa-shield-alt"></i> Safety Advisory</h2>
+                <div class="card">
+                    <div class="card-header">
+                        <h3 id="advisory-location">Location</h3>
+                        <div class="timestamp" id="advisory-timestamp"></div>
+                    </div>
+                    <div class="card-body">
+                        <div class="hazard-sections">
+                            <div class="hazard-section">
+                                <h4><i class="fas fa-mountain"></i> Earthquake Activity</h4>
+                                <div class="hazard-content" id="earthquake-data">
+                                    <div class="loading">Loading earthquake data...</div>
+                                </div>
+                            </div>
+                            <div class="hazard-section">
+                                <h4><i class="fas fa-cloud-rain"></i> Weather Conditions</h4>
+                                <div class="hazard-content" id="weather-data">
+                                    <div class="loading">Loading weather data...</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="safety-advice">
+                            <h4><i class="fas fa-exclamation-circle"></i> Safety Recommendations</h4>
+                            <div class="advice-content" id="safety-advice">
+                                <div class="loading">Generating safety recommendations...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="route-planning">
+                <h2><i class="fas fa-route"></i> Hazard-Aware Route Planning</h2>
+                <div class="route-form">
+                    <div class="input-group">
+                        <label for="origin-input">Origin:</label>
+                        <input type="text" id="origin-input" placeholder="Start location">
+                        <button id="use-current-location" class="btn btn-secondary">
+                            <i class="fas fa-location-arrow"></i> Use Current Location
+                        </button>
+                    </div>
+                    <div class="input-group">
+                        <label for="destination-input">Destination:</label>
+                        <input type="text" id="destination-input" placeholder="Destination">
+                    </div>
+                    <div class="input-group">
+                        <label>Or pick points on map:</label>
+                        <div class="map-pick-buttons">
+                            <button id="pick-origin" class="btn btn-secondary">
+                                <i class="fas fa-map-marker-alt"></i> Pick Origin
+                            </button>
+                            <button id="pick-destination" class="btn btn-secondary">
+                                <i class="fas fa-flag-checkered"></i> Pick Destination
+                            </button>
+                            <button id="clear-points" class="btn btn-secondary">
+                                <i class="fas fa-trash-alt"></i> Clear Points
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button id="calculate-route-btn" class="btn btn-primary">
+                            <i class="fas fa-calculator"></i> Calculate Safe Route
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="map-section">
+                <h2><i class="fas fa-map"></i> Route Map</h2>
+                <div class="map-container">
+                    <div id="map"></div>
+                    <div class="map-controls">
+                        <div class="map-legend">
+                            <h4>Legend:</h4>
+                            <ul>
+                                <li><span class="legend-marker original"></span> Original Route</li>
+                                <li><span class="legend-marker safe"></span> Safe Route</li>
+                                <li><span class="legend-marker hazard"></span> Hazard Zone</li>
+                                <li><span class="legend-marker origin"></span> Origin</li>
+                                <li><span class="legend-marker destination"></span> Destination</li>
+                            </ul>
+                        </div>
+                        <div class="map-info" id="route-info">
+                            <h4>Route Information:</h4>
+                            <div class="info-content">No route calculated yet.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="api-status">
+                <h2><i class="fas fa-plug"></i> System Status</h2>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <span class="status-icon pending"><i class="fas fa-mountain"></i></span>
+                        <span class="status-label">Earthquake API</span>
+                        <span class="status-indicator pending" id="earthquake-status">Pending</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon pending"><i class="fas fa-cloud-rain"></i></span>
+                        <span class="status-label">Weather API</span>
+                        <span class="status-indicator pending" id="weather-status">Pending</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-icon pending"><i class="fas fa-route"></i></span>
+                        <span class="status-label">Routing API</span>
+                        <span class="status-indicator pending" id="routing-status">Pending</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>AlertoPH © 2023 | Real-time hazard awareness for safer travel in the Philippines</p>
+            <p class="disclaimer">
+                <i class="fas fa-info-circle"></i>
+                This system provides advisory information only. Always follow official warnings and use caution.
+            </p>
+        </footer>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
