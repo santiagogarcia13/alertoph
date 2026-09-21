@@ -16,11 +16,6 @@
                 <h1><i class="fas fa-exclamation-triangle"></i> AlertoPH</h1>
                 <p class="tagline">Earthquake, Weather & Hazard-Aware Route Advisory for the Philippines</p>
             </div>
-            <div class="language-toggle">
-                <button id="language-btn" class="btn btn-outline">
-                    <i class="fas fa-language"></i> Switch to Filipino
-                </button>
-            </div>
         </header>
 
         <main class="main-content">
@@ -28,7 +23,7 @@
                 <h2><i class="fas fa-search-location"></i> Location Advisory</h2>
                 <div class="search-form">
                     <div class="input-group">
-                        <input type="text" id="location-input" placeholder="Enter city or province (e.g., Manila, Cebu)">
+                        <input type="text" id="location-input" placeholder="Enter any Philippine city, barangay, landmark, or street (e.g., BGC, Intramuros, Baguio, Cebu)">
                         <button id="search-btn" class="btn btn-primary">
                             <i class="fas fa-search"></i> Get Advisory
                         </button>
@@ -86,14 +81,14 @@
                 <div class="route-form">
                     <div class="input-group">
                         <label for="origin-input">Origin:</label>
-                        <input type="text" id="origin-input" placeholder="Start location">
+                        <input type="text" id="origin-input" placeholder="Start location (e.g., Manila, Quezon City, lat,lng)">
                         <button id="use-current-location" class="btn btn-secondary">
                             <i class="fas fa-location-arrow"></i> Use Current Location
                         </button>
                     </div>
                     <div class="input-group">
                         <label for="destination-input">Destination:</label>
-                        <input type="text" id="destination-input" placeholder="Destination">
+                        <input type="text" id="destination-input" placeholder="Destination (e.g., Taguig, BGC, Makati, lat,lng)">
                     </div>
                     <div class="input-group">
                         <label>Or pick points on map:</label>

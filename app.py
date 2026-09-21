@@ -10,6 +10,7 @@ from services.earthquake_service import fetch_recent_earthquakes, get_nearest_ea
 from services.weather_service import fetch_current_weather, fetch_weather_by_city, is_heavy_rainfall
 from services.advisory_engine import AdvisoryEngine
 from services.routing_service import RoutingService
+from services.geocoding_service import GeocodingService
 from services.hazard_zones import (
     create_hazard_zones,
     detect_hazards_along_route,
@@ -68,6 +69,36 @@ def index():
     """Render the main page."""
     return render_template('index.html')
 
+@app.route('/api/geocode', methods=['GET'])
+def geocode():
+    """Geocode a location query or return autocomplete suggestions across the Philippines."""
+    query = request.args.get('q', '').strip()
+    if not query:
+        return jsonify({
+            'error': 'Query parameter "q" is required',
+            'results': [],
+            'count': 0
+        }), 400
+
+    limit = request.args.get('limit', default=5, type=int)
+    limit = max(1, min(limit, 10))
+
+    try:
+        suggestions = GeocodingService.search_suggestions(query, limit=limit)
+        return jsonify({
+            'query': query,
+            'results': suggestions,
+            'count': len(suggestions)
+        })
+    except Exception as e:
+        logger.error(f"Error in geocode endpoint: {e}")
+        return jsonify({
+            'error': 'Error searching location',
+            'details': str(e),
+            'results': []
+        }), 500
+
+
 @app.route('/api/advisory', methods=['GET'])
 def advisory():
     """Get earthquake and weather advisory for a location."""
@@ -75,6 +106,7 @@ def advisory():
     lat = request.args.get('lat', type=float)
     lng = request.args.get('lng', type=float)
     language = request.args.get('lang', 'english')
+    resolved_location_name = location
 
     try:
         # If location name provided, try to get coordinates
@@ -83,17 +115,25 @@ def advisory():
             if location_key in PH_LOCATIONS:
                 lat, lng = PH_LOCATIONS[location_key]
             else:
-                # Try geocoding with city weather lookup fallback
-                city_weather = fetch_weather_by_city(location, country_code='PH') or fetch_weather_by_city(location)
-                if city_weather and city_weather.get('location', {}).get('latitude') is not None:
-                    lat = city_weather['location']['latitude']
-                    lng = city_weather['location']['longitude']
+                # Try geocoding with GeocodingService
+                geo_result = GeocodingService.geocode(location)
+                if geo_result:
+                    lat = geo_result['latitude']
+                    lng = geo_result['longitude']
+                    resolved_location_name = geo_result.get('display_name') or geo_result.get('name')
                 else:
-                    # Return error with suggested locations
-                    return jsonify({
-                        'error': f'Location "{location}" not recognized. Please use a known Philippine location or provide coordinates.',
-                        'suggested_locations': list(PH_LOCATIONS.keys())
-                    }), 400
+                    # Fallback to city weather geocoding
+                    city_weather = fetch_weather_by_city(location, country_code='PH') or fetch_weather_by_city(location)
+                    if city_weather and city_weather.get('location', {}).get('latitude') is not None:
+                        lat = city_weather['location']['latitude']
+                        lng = city_weather['location']['longitude']
+                        resolved_location_name = city_weather['location'].get('name', location)
+                    else:
+                        # Return error with suggested locations
+                        return jsonify({
+                            'error': f'Location "{location}" not recognized. Please provide a more specific location, address, landmark, or coordinates.',
+                            'suggested_locations': list(PH_LOCATIONS.keys())
+                        }), 400
 
         # Validate coordinates
         if lat is None or lng is None:
@@ -132,7 +172,7 @@ def advisory():
         # Prepare response
         response = {
             'location': {
-                'name': location or f"{lat:.4f}, {lng:.4f}",
+                'name': resolved_location_name or f"{lat:.4f}, {lng:.4f}",
                 'latitude': lat,
                 'longitude': lng
             },

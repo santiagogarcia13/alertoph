@@ -174,6 +174,22 @@ class TestAppEndpoints:
             assert 'hazards' in data
             assert 'advice' in data
 
+    def test_geocode_endpoint_missing_q(self, client):
+        """Test GET /api/geocode without q parameter returns 400."""
+        response = client.get('/api/geocode')
+        assert response.status_code == 400
+        data = response.get_json()
+        assert 'error' in data
+
+    def test_geocode_endpoint_valid_query(self, client):
+        """Test GET /api/geocode with valid query."""
+        response = client.get('/api/geocode?q=bgc')
+        assert response.status_code == 200
+        data = response.get_json()
+        assert 'results' in data
+        assert data['count'] >= 1
+        assert any('BGC' in r['name'] or 'Bonifacio' in r['name'] for r in data['results'])
+
     def test_404_handler(self, client):
         """Test non-existent route returns JSON 404."""
         response = client.get('/nonexistent-path')

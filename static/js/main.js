@@ -2,38 +2,6 @@
  * Main JavaScript for AlertoPH frontend functionality.
  */
 
-// Philippine locations for autocomplete and validation
-const PhilippineLocations = {
-    'manila': { lat: 14.5995, lng: 120.9842, region: 'Metro Manila' },
-    'cebu': { lat: 10.3157, lng: 123.8854, region: 'Central Visayas' },
-    'davao': { lat: 7.1907, lng: 125.4553, region: 'Davao Region' },
-    'quezon city': { lat: 14.6760, lng: 121.0437, region: 'Metro Manila' },
-    'makati': { lat: 14.5547, lng: 121.0244, region: 'Metro Manila' },
-    'taguig': { lat: 14.5176, lng: 121.0509, region: 'Metro Manila' },
-    'pasig': { lat: 14.5764, lng: 121.0851, region: 'Metro Manila' },
-    'iloilo': { lat: 10.7202, lng: 122.5621, region: 'Western Visayas' },
-    'bacolod': { lat: 10.6760, lng: 122.9509, region: 'Western Visayas' },
-    'angeles': { lat: 15.1450, lng: 120.5887, region: 'Central Luzon' },
-    'bicol': { lat: 13.4210, lng: 123.4137, region: 'Bicol Region' },
-    'mindanao': { lat: 8.1833, lng: 124.1667, region: 'Mindanao' },
-    'luzon': { lat: 15.5000, lng: 121.0000, region: 'Luzon' },
-    'visayas': { lat: 11.5000, lng: 123.0000, region: 'Visayas' },
-    'baguio': { lat: 16.4023, lng: 120.5960, region: 'Cordillera' },
-    'cagayan de oro': { lat: 8.4542, lng: 124.6319, region: 'Northern Mindanao' },
-    'zamboanga': { lat: 6.9214, lng: 122.0790, region: 'Zamboanga Peninsula' },
-    'bataan': { lat: 14.6707, lng: 120.4296, region: 'Central Luzon' },
-    'pampanga': { lat: 15.0794, lng: 120.6203, region: 'Central Luzon' },
-    'laguna': { lat: 14.1667, lng: 121.3333, region: 'Calabarzon' },
-    'cavite': { lat: 14.4791, lng: 120.8970, region: 'Calabarzon' },
-    'rizal': { lat: 14.6500, lng: 121.2500, region: 'Calabarzon' },
-    'bulacan': { lat: 14.7939, lng: 120.8795, region: 'Central Luzon' },
-    'batangas': { lat: 13.7538, lng: 121.0594, region: 'Calabarzon' },
-    'puerto princesa': { lat: 9.7392, lng: 118.7353, region: 'Mimaropa' },
-    'tacloban': { lat: 11.2444, lng: 125.0039, region: 'Eastern Visayas' },
-    'naga': { lat: 13.6218, lng: 123.1948, region: 'Bicol Region' },
-    'general santos': { lat: 6.1164, lng: 125.1716, region: 'Soccsksargen' }
-};
-
 // Global state
 const AppState = {
     currentLanguage: 'english',
@@ -42,7 +10,7 @@ const AppState = {
         origin: null,
         destination: null,
         hazards: [],
-        advisory: null  // New marker for advisory location
+        advisory: null
     },
     mapLayers: {
         originRoute: null,
@@ -56,7 +24,6 @@ const AppState = {
 
 // DOM Elements
 const elements = {
-    languageBtn: document.getElementById('language-btn'),
     locationInput: document.getElementById('location-input'),
     searchBtn: document.getElementById('search-btn'),
     latInput: document.getElementById('lat-input'),
@@ -92,9 +59,6 @@ function init() {
 
 // Set up event listeners
 function setupEventListeners() {
-    // Language toggle
-    elements.languageBtn.addEventListener('click', toggleLanguage);
-
     // Location search
     elements.searchBtn.addEventListener('click', () => searchByLocation(elements.locationInput.value));
     elements.coordSearchBtn.addEventListener('click', searchByCoordinates);
@@ -112,32 +76,51 @@ function setupEventListeners() {
     elements.clearPointsBtn.addEventListener('click', clearMapPoints);
     elements.calculateRouteBtn.addEventListener('click', calculateRoute);
 
-    // Autocomplete for location input
-    elements.locationInput.addEventListener('input', handleLocationAutocomplete);
-    elements.locationInput.addEventListener('focus', handleLocationAutocomplete);
+    // Dynamic Geocoding Autocomplete for location input
+    attachGeocodeAutocomplete(elements.locationInput, (item) => {
+        elements.locationInput.value = item.display_name || item.name;
+        elements.latInput.value = item.latitude.toFixed(4);
+        elements.lngInput.value = item.longitude.toFixed(4);
+        setAdvisoryLocationMarker(item.latitude, item.longitude, item.name);
+        searchByCoordinates();
+    });
+
+    // Dynamic Geocoding Autocomplete for route inputs
+    attachGeocodeAutocomplete(elements.originInput, (item) => {
+        elements.originInput.value = `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`;
+        setOriginPoint(item.latitude, item.longitude);
+    });
+
+    attachGeocodeAutocomplete(elements.destinationInput, (item) => {
+        elements.destinationInput.value = `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`;
+        setDestinationPoint(item.latitude, item.longitude);
+    });
+
+    // Close autocomplete on external click
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.input-group')) {
+            clearAllAutocomplete();
+        }
+    });
 }
 
 // Initialize Leaflet map
 function initializeMap() {
-    // Default to Philippines center
     const phCenter = [12.8797, 121.7740]; // Center of Philippines
     const zoomLevel = 6;
 
-    // Create map
     AppState.map = L.map('map').setView(phCenter, zoomLevel);
 
-    // Add OpenStreetMap tiles
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors',
         maxZoom: 18
     }).addTo(AppState.map);
 
-    // Add click handler for point picking
     AppState.map.on('click', handleMapClick);
 }
 
-// Handle map clicks for point picking
-let mapPickingMode = null; // 'origin', 'destination', 'advisory', or null
+// Map point picking
+let mapPickingMode = null;
 
 function setMapPickingMode(mode) {
     mapPickingMode = mode;
@@ -166,12 +149,10 @@ function handleMapClick(e) {
 }
 
 function setOriginPoint(lat, lng) {
-    // Remove existing origin marker
     if (AppState.mapMarkers.origin) {
         AppState.map.removeLayer(AppState.mapMarkers.origin);
     }
 
-    // Create new origin marker
     AppState.mapMarkers.origin = L.marker([lat, lng], {
         icon: L.divIcon({
             className: 'map-marker origin',
@@ -180,17 +161,14 @@ function setOriginPoint(lat, lng) {
         })
     }).addTo(AppState.map);
 
-    // Update input field
     elements.originInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
 function setDestinationPoint(lat, lng) {
-    // Remove existing destination marker
     if (AppState.mapMarkers.destination) {
         AppState.map.removeLayer(AppState.mapMarkers.destination);
     }
 
-    // Create new destination marker
     AppState.mapMarkers.destination = L.marker([lat, lng], {
         icon: L.divIcon({
             className: 'map-marker destination',
@@ -199,12 +177,30 @@ function setDestinationPoint(lat, lng) {
         })
     }).addTo(AppState.map);
 
-    // Update input field
     elements.destinationInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
+function setAdvisoryLocationMarker(lat, lng, title) {
+    if (AppState.mapMarkers.advisory) {
+        AppState.map.removeLayer(AppState.mapMarkers.advisory);
+    }
+
+    AppState.mapMarkers.advisory = L.marker([lat, lng], {
+        icon: L.divIcon({
+            className: 'map-marker advisory',
+            html: '<i class="fas fa-exclamation-circle" style="color: #4caf50; font-size: 24px;"></i>',
+            iconSize: [24, 24]
+        })
+    }).addTo(AppState.map);
+
+    if (title) {
+        AppState.mapMarkers.advisory.bindPopup(`<b>${title}</b>`).openPopup();
+    }
+
+    AppState.map.setView([lat, lng], 10);
+}
+
 function clearMapPoints() {
-    // Clear markers
     if (AppState.mapMarkers.origin) {
         AppState.map.removeLayer(AppState.mapMarkers.origin);
         AppState.mapMarkers.origin = null;
@@ -214,128 +210,111 @@ function clearMapPoints() {
         AppState.mapMarkers.destination = null;
     }
 
-    // Clear input fields
     elements.originInput.value = '';
     elements.destinationInput.value = '';
 
-    // Clear routes
     clearRoutes();
 }
 
-// Set advisory location from map click
 function setAdvisoryLocationFromMap(lat, lng) {
-    // Remove existing advisory marker
-    if (AppState.mapMarkers.advisory) {
-        AppState.map.removeLayer(AppState.mapMarkers.advisory);
-    }
-
-    // Create new advisory marker
-    AppState.mapMarkers.advisory = L.marker([lat, lng], {
-        icon: L.divIcon({
-            className: 'map-marker advisory',
-            html: '<i class="fas fa-exclamation-circle" style="color: #4caf50; font-size: 24px;"></i>',
-            iconSize: [24, 24]
-        })
-    }).addTo(AppState.map);
-
-    // Update coordinate input fields
+    setAdvisoryLocationMarker(lat, lng);
     elements.latInput.value = lat.toFixed(4);
     elements.lngInput.value = lng.toFixed(4);
-
-    // Try to find the nearest named location
-    const nearestLocation = findNearestLocation(lat, lng);
-    if (nearestLocation) {
-        elements.locationInput.value = nearestLocation.name;
-        // Auto-search for advisory
-        setTimeout(() => searchByLocation(nearestLocation.name), 500);
-    } else {
-        // If no named location found, search by coordinates
-        setTimeout(() => searchByCoordinates(), 500);
-    }
+    elements.locationInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    setTimeout(() => searchByCoordinates(), 300);
 }
 
-// Find nearest named location to coordinates
-function findNearestLocation(lat, lng) {
-    let nearest = null;
-    let minDistance = Infinity;
+// Dynamic Geocoding and Autocomplete Implementation
+const debounceTimers = new Map();
 
-    for (const [name, data] of Object.entries(PhilippineLocations)) {
-        const distance = Math.sqrt(
-            Math.pow(lat - data.lat, 2) + Math.pow(lng - data.lng, 2)
-        );
+function attachGeocodeAutocomplete(inputElement, onSelectCallback) {
+    if (!inputElement) return;
 
-        if (distance < minDistance) {
-            minDistance = distance;
-            nearest = { name, ...data };
+    inputElement.addEventListener('input', () => {
+        const query = inputElement.value.trim();
+        if (query.length < 2) {
+            clearAutocompleteFor(inputElement);
+            return;
         }
-    }
 
-    // If within reasonable distance (approx 0.5 degrees ~ 55km)
-    return minDistance < 0.5 ? nearest : null;
-}
-
-// Autocomplete functionality for location input
-function handleLocationAutocomplete() {
-    const input = elements.locationInput;
-    const value = input.value.toLowerCase().trim();
-
-    if (!value) {
-        clearAutocomplete();
-        return;
-    }
-
-    // Find matching locations
-    const matches = [];
-    for (const [name, data] of Object.entries(PhilippineLocations)) {
-        if (name.toLowerCase().includes(value)) {
-            matches.push({ name, region: data.region });
+        // Debounce API calls (300ms)
+        if (debounceTimers.has(inputElement)) {
+            clearTimeout(debounceTimers.get(inputElement));
         }
-    }
 
-    // Show autocomplete suggestions
-    showAutocompleteSuggestions(matches);
+        const timer = setTimeout(() => {
+            fetchGeocodeSuggestions(query, inputElement, onSelectCallback);
+        }, 300);
+
+        debounceTimers.set(inputElement, timer);
+    });
 }
 
-// Show autocomplete suggestions
-function showAutocompleteSuggestions(matches) {
-    clearAutocomplete();
+function fetchGeocodeSuggestions(query, inputElement, onSelectCallback) {
+    fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=6`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.results && data.results.length > 0) {
+                renderAutocompleteDropdown(inputElement, data.results, onSelectCallback);
+            } else {
+                clearAutocompleteFor(inputElement);
+            }
+        })
+        .catch(err => {
+            console.warn('Geocoding autocomplete error:', err);
+            clearAutocompleteFor(inputElement);
+        });
+}
 
-    if (matches.length === 0) {
-        return;
-    }
+function renderAutocompleteDropdown(inputElement, items, onSelectCallback) {
+    clearAutocompleteFor(inputElement);
 
     const container = document.createElement('div');
     container.className = 'autocomplete-container';
-    container.id = 'autocomplete-container';
+    container.dataset.owner = inputElement.id;
 
-    matches.slice(0, 5).forEach(match => {
-        const item = document.createElement('div');
-        item.className = 'autocomplete-item';
-        item.innerHTML = `
-            <strong>${match.name.charAt(0).toUpperCase() + match.name.slice(1)}</strong>
-            <small>${match.region}</small>
+    items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'autocomplete-item';
+
+        const mainLabel = item.name || 'Location';
+        const subLabel = item.display_name || item.region || `${item.latitude.toFixed(3)}, ${item.longitude.toFixed(3)}`;
+
+        row.innerHTML = `
+            <strong><i class="fas fa-map-pin" style="margin-right: 6px; color: var(--primary-color);"></i>${escapeHtml(mainLabel)}</strong>
+            <small>${escapeHtml(subLabel)}</small>
         `;
-        item.addEventListener('click', () => {
-            elements.locationInput.value = match.name;
-            clearAutocomplete();
-            searchByLocation(match.name);
+
+        row.addEventListener('click', () => {
+            clearAutocompleteFor(inputElement);
+            onSelectCallback(item);
         });
-        container.appendChild(item);
+
+        container.appendChild(row);
     });
 
-    elements.locationInput.parentNode.appendChild(container);
+    inputElement.parentNode.appendChild(container);
 }
 
-// Clear autocomplete suggestions
-function clearAutocomplete() {
-    const container = document.getElementById('autocomplete-container');
-    if (container) {
-        container.remove();
+function clearAutocompleteFor(inputElement) {
+    const parent = inputElement.parentNode;
+    if (parent) {
+        const container = parent.querySelector('.autocomplete-container');
+        if (container) container.remove();
     }
 }
 
+function clearAllAutocomplete() {
+    document.querySelectorAll('.autocomplete-container').forEach(el => el.remove());
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 function clearRoutes() {
-    // Clear route layers
     if (AppState.mapLayers.originRoute) {
         AppState.map.removeLayer(AppState.mapLayers.originRoute);
         AppState.mapLayers.originRoute = null;
@@ -348,31 +327,10 @@ function clearRoutes() {
         AppState.map.removeLayer(AppState.mapLayers.hazardZones);
         AppState.mapLayers.hazardZones = null;
     }
-
-    // Clear route info
     updateRouteInfo(null);
 }
 
-// Toggle between English and Filipino
-function toggleLanguage() {
-    AppState.currentLanguage = AppState.currentLanguage === 'english' ? 'filipino' : 'english';
-    elements.languageBtn.innerHTML = `
-        <i class="fas fa-language"></i>
-        Switch to ${AppState.currentLanguage === 'english' ? 'Filipino' : 'English'}
-    `;
-
-    // Refresh current advisory if available
-    if (AppState.currentAdvisory) {
-        displayAdvisory(AppState.currentAdvisory);
-    }
-
-    // Refresh current route if available
-    if (AppState.currentRoute) {
-        displayRouteResults(AppState.currentRoute);
-    }
-}
-
-// Search by location name
+// Search by location name or address
 function searchByLocation(location) {
     if (!location.trim()) {
         alert('Please enter a location name.');
@@ -380,7 +338,9 @@ function searchByLocation(location) {
     }
 
     showLoading('advisory');
-    fetch(`/api/advisory?location=${encodeURIComponent(location)}&lang=${AppState.currentLanguage}`)
+    clearAllAutocomplete();
+
+    fetch(`/api/advisory?location=${encodeURIComponent(location)}&lang=english`)
         .then(async response => {
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -422,7 +382,9 @@ function searchByCoordinates() {
     }
 
     showLoading('advisory');
-    fetch(`/api/advisory?lat=${lat}&lng=${lng}&lang=${AppState.currentLanguage}`)
+    clearAllAutocomplete();
+
+    fetch(`/api/advisory?lat=${lat}&lng=${lng}&lang=english`)
         .then(async response => {
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
@@ -450,26 +412,18 @@ function searchByCoordinates() {
 
 // Display advisory results
 function displayAdvisory(data) {
-    // Show advisory section
     elements.advisoryResults.style.display = 'block';
 
-    // Update location and timestamp
     elements.advisoryLocation.textContent = data.location.name;
     const timestamp = new Date(data.timestamp).toLocaleString();
     elements.advisoryTimestamp.textContent = `Updated: ${timestamp}`;
 
-    // Display earthquake data
     displayEarthquakeData(data.earthquakes, data.advisory.earthquake);
-
-    // Display weather data
     displayWeatherData(data.weather, data.advisory.weather);
-
-    // Display safety advice
     displaySafetyAdvice(data.advisory);
 
-    // Center map on location if coordinates available
     if (data.location.latitude && data.location.longitude) {
-        AppState.map.setView([data.location.latitude, data.location.longitude], 10);
+        setAdvisoryLocationMarker(data.location.latitude, data.location.longitude, data.location.name);
     }
 }
 
@@ -500,7 +454,6 @@ function displayEarthquakeData(earthquakes, earthquakeAdvice) {
         html += '<div class="no-hazards">No significant earthquake activity detected.</div>';
     }
 
-    // Add advisory summary
     if (earthquakeAdvice) {
         html += `<div class="advice-summary"><strong>${earthquakeAdvice.summary}</strong></div>`;
     }
@@ -558,7 +511,6 @@ function displayWeatherData(weather, weatherAdvice) {
         html += '<div class="no-weather">Weather data unavailable.</div>';
     }
 
-    // Add advisory summary
     if (weatherAdvice) {
         html += `<div class="advice-summary"><strong>${weatherAdvice.summary}</strong></div>`;
     }
@@ -569,13 +521,11 @@ function displayWeatherData(weather, weatherAdvice) {
 function displaySafetyAdvice(advisory) {
     let html = '';
 
-    // Overall summary
     html += `<div class="overall-advice ${advisory.overall_severity}">`;
     html += `<h4>${advisory.overall_summary}</h4>`;
     html += `<p>Severity: <span class="severity-${advisory.overall_severity}">${advisory.overall_severity.toUpperCase()}</span></p>`;
     html += '</div>';
 
-    // Individual advice items
     if (advisory.all_advice && advisory.all_advice.length > 0) {
         html += '<div class="advice-list">';
         advisory.all_advice.forEach(advice => {
@@ -619,33 +569,57 @@ function useCurrentLocation() {
     );
 }
 
-// Calculate route
-function calculateRoute() {
-    const origin = elements.originInput.value;
-    const destination = elements.destinationInput.value;
+// Resolve location input string to coordinates (supports both "lat, lng" and named places)
+async function resolveLocationToCoords(inputStr) {
+    const parsed = parseCoordinates(inputStr);
+    if (parsed) return parsed;
 
-    if (!origin || !destination) {
+    try {
+        const resp = await fetch(`/api/geocode?q=${encodeURIComponent(inputStr)}&limit=1`);
+        const data = await resp.json();
+        if (data.results && data.results.length > 0) {
+            return {
+                lat: data.results[0].latitude,
+                lng: data.results[0].longitude
+            };
+        }
+    } catch (e) {
+        console.warn('Failed to resolve coordinates for:', inputStr, e);
+    }
+    return null;
+}
+
+// Calculate route
+async function calculateRoute() {
+    const originText = elements.originInput.value.trim();
+    const destinationText = elements.destinationInput.value.trim();
+
+    if (!originText || !destinationText) {
         alert('Please enter both origin and destination.');
         return;
     }
 
-    // Parse coordinates from input
-    const originCoords = parseCoordinates(origin);
-    const destinationCoords = parseCoordinates(destination);
+    showLoading('route');
+    clearAllAutocomplete();
+
+    // Resolve coordinates for origin and destination
+    const originCoords = await resolveLocationToCoords(originText);
+    const destinationCoords = await resolveLocationToCoords(destinationText);
 
     if (!originCoords || !destinationCoords) {
-        alert('Please enter valid coordinates in format: latitude, longitude');
+        hideLoading('route');
+        alert('Unable to resolve coordinates for the origin or destination. Please provide valid location names or coordinates (lat, lng).');
         return;
     }
 
-    showLoading('route');
+    setOriginPoint(originCoords.lat, originCoords.lng);
+    setDestinationPoint(destinationCoords.lat, destinationCoords.lng);
     clearRoutes();
 
-    // Call the backend route API
     const routeRequest = {
         origin: originCoords,
         destination: destinationCoords,
-        lang: AppState.currentLanguage
+        lang: 'english'
     };
 
     fetch('/api/route', {
@@ -677,7 +651,6 @@ function calculateRoute() {
         showError('route', `Failed to calculate route: ${error.message}`);
         updateApiStatus('routing', 'error');
 
-        // Fall back to placeholder route
         drawPlaceholderRoute(originCoords, destinationCoords);
         updateRouteInfo({
             distance_km: null,
@@ -705,13 +678,11 @@ function parseCoordinates(input) {
 }
 
 function drawPlaceholderRoute(origin, destination) {
-    // Create a straight line between points
     const linePoints = [
         [origin.lat, origin.lng],
         [destination.lat, destination.lng]
     ];
 
-    // Draw original route (dashed line)
     AppState.mapLayers.originRoute = L.polyline(linePoints, {
         color: '#666',
         weight: 4,
@@ -719,15 +690,6 @@ function drawPlaceholderRoute(origin, destination) {
         dashArray: '10, 10'
     }).addTo(AppState.map);
 
-    // Add markers if not already present
-    if (!AppState.mapMarkers.origin) {
-        setOriginPoint(origin.lat, origin.lng);
-    }
-    if (!AppState.mapMarkers.destination) {
-        setDestinationPoint(destination.lat, destination.lng);
-    }
-
-    // Fit map to show both points
     AppState.map.fitBounds([linePoints[0], linePoints[1]], { padding: [50, 50] });
 }
 
@@ -808,7 +770,6 @@ function displayRouteResults(routeData) {
 
     const activeRoute = routeData.adjusted_route || routeData.base_route;
 
-    // Update route info
     const info = {
         distance_km: activeRoute?.distance_km,
         duration_min: activeRoute?.duration_min,
@@ -821,7 +782,6 @@ function displayRouteResults(routeData) {
 }
 
 function drawRouteOnMap(routeData) {
-    // Clear existing routes
     if (AppState.mapLayers.originRoute) {
         AppState.map.removeLayer(AppState.mapLayers.originRoute);
         AppState.mapLayers.originRoute = null;
@@ -833,19 +793,18 @@ function drawRouteOnMap(routeData) {
 
     // Draw base route
     if (routeData.base_route && routeData.base_route.coordinates && routeData.base_route.coordinates.length > 0) {
-        const routePoints = routeData.base_route.coordinates.map(coord => [coord[1], coord[0]]); // Convert [lng, lat] to [lat, lng]
+        const routePoints = routeData.base_route.coordinates.map(coord => [coord[1], coord[0]]);
 
         AppState.mapLayers.originRoute = L.polyline(routePoints, {
             color: '#1e88e5',
             weight: 5,
-            opacity: 0.8,
-            dashArray: null
+            opacity: 0.8
         }).addTo(AppState.map);
     }
 
-    // Draw adjusted route if available
+    // Draw safe / adjusted route
     if (routeData.adjusted_route && routeData.adjusted_route.coordinates && routeData.adjusted_route.coordinates.length > 0) {
-        const adjustedPoints = routeData.adjusted_route.coordinates.map(coord => [coord[1], coord[0]]); // Convert [lng, lat] to [lat, lng]
+        const adjustedPoints = routeData.adjusted_route.coordinates.map(coord => [coord[1], coord[0]]);
 
         AppState.mapLayers.safeRoute = L.polyline(adjustedPoints, {
             color: '#4caf50',
@@ -855,9 +814,9 @@ function drawRouteOnMap(routeData) {
         }).addTo(AppState.map);
     }
 
-    // Draw hazard zones if available
+    // Draw hazard zones
     if (routeData.hazard_zones && routeData.hazard_zones.length > 0) {
-        routeData.hazard_zones.forEach((zone, index) => {
+        routeData.hazard_zones.forEach(zone => {
             if (zone.geojson && zone.geojson.features) {
                 zone.geojson.features.forEach(feature => {
                     if (feature.geometry && feature.geometry.coordinates) {
@@ -867,7 +826,7 @@ function drawRouteOnMap(routeData) {
                                 weight: 2,
                                 opacity: 0.6,
                                 fillColor: '#ff5252',
-                                fillOpacity: 0.2
+                                fillOpacity: 0.25
                             }
                         }).addTo(AppState.map);
 
@@ -878,7 +837,7 @@ function drawRouteOnMap(routeData) {
         });
     }
 
-    // Fit map to show the route
+    // Fit map bounds
     if (routeData.base_route && routeData.base_route.coordinates && routeData.base_route.coordinates.length > 0) {
         const routePoints = routeData.base_route.coordinates.map(coord => [coord[1], coord[0]]);
         const bounds = L.latLngBounds(routePoints);
@@ -888,28 +847,14 @@ function drawRouteOnMap(routeData) {
 
 // API status checking
 function checkApiStatus() {
-    // Check Earthquake & Weather API via advisory endpoint
     fetch('/api/advisory?lat=14.5995&lng=120.9842&lang=english')
         .then(response => {
-            if (response.ok) {
-                return response.json();
-            }
-            throw new Error('Advisory service response not ok');
+            if (response.ok) return response.json();
+            throw new Error('Advisory service check response not ok');
         })
         .then(data => {
-            if (data.earthquakes !== undefined) {
-                updateApiStatus('earthquake', 'active');
-            } else {
-                updateApiStatus('earthquake', 'warning');
-            }
-
-            if (data.weather && !data.weather.error) {
-                updateApiStatus('weather', 'active');
-            } else if (data.weather && data.weather.error) {
-                updateApiStatus('weather', 'warning');
-            } else {
-                updateApiStatus('weather', 'error');
-            }
+            updateApiStatus('earthquake', data.earthquakes !== undefined ? 'active' : 'warning');
+            updateApiStatus('weather', data.weather && !data.weather.error ? 'active' : 'warning');
         })
         .catch(err => {
             console.error('API check error:', err);
@@ -917,7 +862,6 @@ function checkApiStatus() {
             updateApiStatus('weather', 'error');
         });
 
-    // Check Routing API
     fetch('/api/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -928,11 +872,7 @@ function checkApiStatus() {
         })
     })
     .then(response => {
-        if (response.ok) {
-            updateApiStatus('routing', 'active');
-        } else {
-            updateApiStatus('routing', 'warning');
-        }
+        updateApiStatus('routing', response.ok ? 'active' : 'warning');
     })
     .catch(() => {
         updateApiStatus('routing', 'error');
@@ -943,11 +883,9 @@ function updateApiStatus(api, status) {
     const element = elements[`${api}Status`];
     if (!element) return;
 
-    // Clear existing classes
     element.className = 'status-indicator';
     element.textContent = status.charAt(0).toUpperCase() + status.slice(1);
 
-    // Add status-specific class
     switch (status) {
         case 'active':
             element.classList.add('active');
@@ -964,9 +902,7 @@ function updateApiStatus(api, status) {
     }
 }
 
-// Utility functions
 function showLoading(context) {
-    // Could implement loading spinners for different contexts
     console.log(`Loading ${context}...`);
 }
 
@@ -978,5 +914,5 @@ function showError(context, message) {
     alert(`Error (${context}): ${message}`);
 }
 
-// Initialize the app when DOM is loaded
+// Initialize on DOM ready
 document.addEventListener('DOMContentLoaded', init);
