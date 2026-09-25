@@ -1,8 +1,9 @@
 """
-Routing service for calculating routes using OpenRouteService API.
+Routing service for calculating routes using OpenRouteService API with automatic OSRM fallback.
 """
 import requests
 import logging
+import math
 from typing import Dict, List, Any, Optional, Tuple
 
 from config import Config
@@ -21,6 +22,7 @@ class RoutingService:
     ) -> Optional[Dict[str, Any]]:
         """
         Calculate a basic route between origin and destination.
+        Tries OpenRouteService first (if key configured), then falls back to OSRM.
 
         Args:
             origin: {'lat': latitude, 'lng': longitude}
@@ -28,122 +30,153 @@ class RoutingService:
             profile: Route profile (driving-car, cycling-regular, foot-walking)
 
         Returns:
-            Route data or None if API call fails
+            Route data or None if all providers fail
         """
-        try:
-            if not Config.OPENROUTESERVICE_API_KEY:
-                logger.error("OpenRouteService API key not configured")
-                return None
+        # 1. Try OpenRouteService if API key configured
+        if Config.OPENROUTESERVICE_API_KEY:
+            try:
+                headers = {
+                    'Authorization': Config.OPENROUTESERVICE_API_KEY,
+                    'Content-Type': 'application/json'
+                }
+                route_data = {
+                    'coordinates': [
+                        [origin['lng'], origin['lat']],
+                        [destination['lng'], destination['lat']]
+                    ],
+                    'instructions': False,
+                    'units': 'km',
+                    'language': 'en'
+                }
 
-            headers = {
-                'Authorization': Config.OPENROUTESERVICE_API_KEY,
-                'Content-Type': 'application/json'
-            }
+                logger.info(f"Calculating route via OpenRouteService: {origin} -> {destination}")
+                response = requests.post(
+                    f"{Config.OPENROUTESERVICE_API_BASE}/v2/directions/{profile}",
+                    headers=headers,
+                    json=route_data,
+                    timeout=12
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    route_info = data.get('routes', [{}])[0]
+                    segments = route_info.get('segments', [{}])[0]
+                    route = {
+                        'distance': route_info.get('summary', {}).get('distance', 0),  # km
+                        'duration': route_info.get('summary', {}).get('duration', 0),  # seconds
+                        'geometry': route_info.get('geometry'),
+                        'coordinates': RoutingService.decode_polyline(route_info.get('geometry', '')),
+                        'summary': route_info.get('summary', {})
+                    }
+                    if segments:
+                        route['segments'] = segments
+                    logger.info(f"ORS Route calculated: {route['distance']:.1f} km, {route['duration']:.0f}s")
+                    return route
+                else:
+                    logger.warning(f"ORS request returned status {response.status_code}, falling back to OSRM")
+            except Exception as e:
+                logger.warning(f"ORS route error ({e}), falling back to OSRM")
 
-            # Build route request
-            route_data = {
-                'coordinates': [
-                    [origin['lng'], origin['lat']],
-                    [destination['lng'], destination['lat']]
-                ],
-                'instructions': False,  # We don't need turn-by-turn for now
-                'units': 'km',
-                'language': 'en'
-            }
-
-            logger.info(f"Calculating route from {origin} to {destination}")
-
-            response = requests.post(
-                f"{Config.OPENROUTESERVICE_API_BASE}/v2/directions/{profile}",
-                headers=headers,
-                json=route_data,
-                timeout=15
-            )
-            response.raise_for_status()
-
-            data = response.json()
-
-            # Extract route information
-            route_info = data.get('routes', [{}])[0]
-            segments = route_info.get('segments', [{}])[0]
-
-            route = {
-                'distance': route_info.get('summary', {}).get('distance'),  # meters
-                'duration': route_info.get('summary', {}).get('duration'),  # seconds
-                'geometry': route_info.get('geometry'),  # encoded polyline
-                'coordinates': RoutingService.decode_polyline(
-                    route_info.get('geometry', '')
-                ),
-                'summary': route_info.get('summary', {})
-            }
-
-            # Add segment details if available
-            if segments:
-                route['segments'] = segments
-
-            logger.info(f"Route calculated: {route['distance']:.0f}m, {route['duration']:.0f}s")
-            return route
-
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error calculating route: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error in route calculation: {e}")
-            return None
+        # 2. Free Public OSRM Fallback (Zero API Key Required)
+        return RoutingService._calculate_osrm_route(origin, destination)
 
     @staticmethod
-    def decode_polyline(encoded: str) -> List[List[float]]:
+    def _calculate_osrm_route(
+        origin: Dict[str, float],
+        destination: Dict[str, float],
+        waypoints: Optional[List[List[float]]] = None
+    ) -> Optional[Dict[str, Any]]:
         """
-        Decode Google polyline format.
+        Calculate route using Open Source Routing Machine (OSRM) public API.
 
         Args:
-            encoded: Encoded polyline string
+            origin: {'lat': lat, 'lng': lng}
+            destination: {'lat': lat, 'lng': lng}
+            waypoints: Optional list of [lat, lng] detour points
 
         Returns:
-            List of [longitude, latitude] coordinates
+            Formatted route dictionary
         """
-        if not encoded:
-            return []
+        try:
+            if waypoints and len(waypoints) > 0:
+                wp_coords = ';'.join([f"{w[1]:.5f},{w[0]:.5f}" for w in waypoints])
+                coords_str = f"{origin['lng']:.5f},{origin['lat']:.5f};{wp_coords};{destination['lng']:.5f},{destination['lat']:.5f}"
+            else:
+                coords_str = f"{origin['lng']:.5f},{origin['lat']:.5f};{destination['lng']:.5f},{destination['lat']:.5f}"
 
-        coordinates = []
-        index = 0
-        lat = 0
-        lng = 0
+            url = f"https://router.project-osrm.org/route/v1/driving/{coords_str}?overview=full&geometries=geojson"
+            logger.info(f"Calculating route via OSRM fallback: {url}")
 
-        while index < len(encoded):
-            # Decode latitude
-            b = 0
-            shift = 0
-            result = 0
+            response = requests.get(url, timeout=12)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('routes') and len(data['routes']) > 0:
+                    primary_route = data['routes'][0]
+                    dist_km = primary_route.get('distance', 0) / 1000.0
+                    dur_sec = primary_route.get('duration', 0)
+                    coords = primary_route.get('geometry', {}).get('coordinates', [])
 
-            while True:
-                b = ord(encoded[index]) - 63
-                index += 1
-                result |= (b & 0x1f) << shift
-                shift += 5
-                if b < 0x20:
-                    break
+                    return {
+                        'distance': dist_km,
+                        'duration': dur_sec,
+                        'coordinates': coords,
+                        'summary': {
+                            'distance': dist_km,
+                            'duration': dur_sec
+                        }
+                    }
 
-            lat += ~(result >> 1) if result & 1 else result >> 1
+            # 3. Geometric direct path fallback if network fails
+            return RoutingService._generate_geometric_route(origin, destination, waypoints)
 
-            # Decode longitude
-            b = 0
-            shift = 0
-            result = 0
+        except Exception as e:
+            logger.error(f"OSRM routing failed: {e}")
+            return RoutingService._generate_geometric_route(origin, destination, waypoints)
 
-            while True:
-                b = ord(encoded[index]) - 63
-                index += 1
-                result |= (b & 0x1f) << shift
-                shift += 5
-                if b < 0x20:
-                    break
+    @staticmethod
+    def _generate_geometric_route(
+        origin: Dict[str, float],
+        destination: Dict[str, float],
+        waypoints: Optional[List[List[float]]] = None
+    ) -> Dict[str, Any]:
+        """
+        Generate an interpolated route when external routing services are unreachable.
+        """
+        all_pts = [[origin['lat'], origin['lng']]]
+        if waypoints:
+            all_pts.extend(waypoints)
+        all_pts.append([destination['lat'], destination['lng']])
 
-            lng += ~(result >> 1) if result & 1 else result >> 1
+        coords = []
+        total_dist_km = 0.0
 
-            coordinates.append([lng * 1e-5, lat * 1e-5])
+        for i in range(len(all_pts) - 1):
+            p1 = all_pts[i]
+            p2 = all_pts[i + 1]
+            steps = 15
+            for s in range(steps):
+                t = s / steps
+                lat = p1[0] + (p2[0] - p1[0]) * t
+                lng = p1[1] + (p2[1] - p1[1]) * t
+                coords.append([lng, lat])
 
-        return coordinates
+            # Great circle approximation
+            dlat = math.radians(p2[0] - p1[0])
+            dlng = math.radians(p2[1] - p1[1])
+            a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(p1[0])) * math.cos(math.radians(p2[0])) * math.sin(dlng / 2) ** 2
+            total_dist_km += 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+        coords.append([destination['lng'], destination['lat']])
+        dur_sec = (total_dist_km / 40.0) * 3600.0  # Approx 40 km/h avg speed
+
+        return {
+            'distance': total_dist_km,
+            'duration': dur_sec,
+            'coordinates': coords,
+            'summary': {
+                'distance': total_dist_km,
+                'duration': dur_sec
+            }
+        }
 
     @staticmethod
     def calculate_hazard_aware_route(
@@ -154,83 +187,136 @@ class RoutingService:
     ) -> Optional[Dict[str, Any]]:
         """
         Calculate a route avoiding hazard polygons.
-
-        Args:
-            origin: {'lat': latitude, 'lng': longitude}
-            destination: {'lat': latitude, 'lng': longitude}
-            hazard_polygons: List of polygons to avoid
-            profile: Route profile
-
-        Returns:
-            Hazard-aware route data or None
         """
-        try:
-            if not Config.OPENROUTESERVICE_API_KEY:
-                logger.error("OpenRouteService API key not configured")
-                return None
-
-            headers = {
-                'Authorization': Config.OPENROUTESERVICE_API_KEY,
-                'Content-Type': 'application/json'
-            }
-
-            # Build route request with avoid_polygons
-            route_data = {
-                'coordinates': [
-                    [origin['lng'], origin['lat']],
-                    [destination['lng'], destination['lat']]
-                ],
-                'instructions': False,
-                'units': 'km',
-                'language': 'en',
-                'options': {
-                    'avoid_polygons': {
-                        'type': 'MultiPolygon',
-                        'coordinates': hazard_polygons
+        # 1. Try OpenRouteService with avoid_polygons if API key configured
+        if Config.OPENROUTESERVICE_API_KEY:
+            try:
+                headers = {
+                    'Authorization': Config.OPENROUTESERVICE_API_KEY,
+                    'Content-Type': 'application/json'
+                }
+                route_data = {
+                    'coordinates': [
+                        [origin['lng'], origin['lat']],
+                        [destination['lng'], destination['lat']]
+                    ],
+                    'instructions': False,
+                    'units': 'km',
+                    'language': 'en',
+                    'options': {
+                        'avoid_polygons': {
+                            'type': 'MultiPolygon',
+                            'coordinates': hazard_polygons
+                        }
                     }
                 }
-            }
 
-            logger.info(f"Calculating hazard-aware route avoiding {len(hazard_polygons)} polygons")
+                logger.info(f"Calculating hazard-aware route avoiding {len(hazard_polygons)} polygons via ORS")
+                response = requests.post(
+                    f"{Config.OPENROUTESERVICE_API_BASE}/v2/directions/{profile}",
+                    headers=headers,
+                    json=route_data,
+                    timeout=15
+                )
 
-            response = requests.post(
-                f"{Config.OPENROUTESERVICE_API_BASE}/v2/directions/{profile}",
-                headers=headers,
-                json=route_data,
-                timeout=15
-            )
+                if response.status_code == 200:
+                    data = response.json()
+                    route_info = data.get('routes', [{}])[0]
+                    return {
+                        'distance': route_info.get('summary', {}).get('distance', 0),
+                        'duration': route_info.get('summary', {}).get('duration', 0),
+                        'geometry': route_info.get('geometry'),
+                        'coordinates': RoutingService.decode_polyline(route_info.get('geometry', '')),
+                        'summary': route_info.get('summary', {}),
+                        'hazards_avoided': len(hazard_polygons)
+                    }
+            except Exception as e:
+                logger.warning(f"Hazard avoidance via ORS failed: {e}")
 
-            if response.status_code == 400:
-                # The API might not support avoid_polygons or polygons might be invalid
-                logger.warning("Route with avoid_polygons failed, falling back to base route")
-                return RoutingService.calculate_base_route(origin, destination, profile)
+        # 2. Compute detour waypoint avoiding hazard centroids
+        detour_waypoints = RoutingService._compute_detour_waypoints(origin, destination, hazard_polygons)
+        adjusted = RoutingService._calculate_osrm_route(origin, destination, waypoints=detour_waypoints)
+        if adjusted:
+            adjusted['hazards_avoided'] = len(hazard_polygons)
+            return adjusted
 
-            response.raise_for_status()
+        # Fallback to base route if detour calculation fails
+        return RoutingService.calculate_base_route(origin, destination, profile)
 
-            data = response.json()
-            route_info = data.get('routes', [{}])[0]
+    @staticmethod
+    def _compute_detour_waypoints(
+        origin: Dict[str, float],
+        destination: Dict[str, float],
+        hazard_polygons: List[List[List[float]]]
+    ) -> List[List[float]]:
+        """
+        Compute safe waypoint offsets around hazard polygons.
+        """
+        waypoints = []
+        for poly in hazard_polygons:
+            if not poly or len(poly) < 3:
+                continue
+            # Calculate polygon centroid
+            avg_lng = sum(pt[0] for pt in poly) / len(poly)
+            avg_lat = sum(pt[1] for pt in poly) / len(poly)
 
-            route = {
-                'distance': route_info.get('summary', {}).get('distance'),
-                'duration': route_info.get('summary', {}).get('duration'),
-                'geometry': route_info.get('geometry'),
-                'coordinates': RoutingService.decode_polyline(
-                    route_info.get('geometry', '')
-                ),
-                'summary': route_info.get('summary', {}),
-                'hazards_avoided': len(hazard_polygons)
-            }
+            # Calculate perpendicular offset from origin-destination line
+            dx = destination['lng'] - origin['lng']
+            dy = destination['lat'] - origin['lat']
+            length = math.sqrt(dx * dx + dy * dy) or 1.0
 
-            logger.info(f"Hazard-aware route calculated: {route['distance']:.0f}m")
-            return route
+            # Unit normal vector
+            nx = -dy / length
+            ny = dx / length
 
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error calculating hazard-aware route: {e}")
-            # Fall back to base route
-            return RoutingService.calculate_base_route(origin, destination, profile)
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            return None
+            # 0.08 deg offset (~8-9 km buffer)
+            detour_lat = avg_lat + ny * 0.08
+            detour_lng = avg_lng + nx * 0.08
+            waypoints.append([detour_lat, detour_lng])
+
+        return waypoints
+
+    @staticmethod
+    def decode_polyline(encoded: str) -> List[List[float]]:
+        """
+        Decode Google polyline format.
+        """
+        if not encoded:
+            return []
+
+        coordinates = []
+        index = 0
+        lat = 0
+        lng = 0
+
+        while index < len(encoded):
+            b = 0
+            shift = 0
+            result = 0
+            while True:
+                b = ord(encoded[index]) - 63
+                index += 1
+                result |= (b & 0x1f) << shift
+                shift += 5
+                if b < 0x20:
+                    break
+            lat += ~(result >> 1) if result & 1 else result >> 1
+
+            b = 0
+            shift = 0
+            result = 0
+            while True:
+                b = ord(encoded[index]) - 63
+                index += 1
+                result |= (b & 0x1f) << shift
+                shift += 5
+                if b < 0x20:
+                    break
+            lng += ~(result >> 1) if result & 1 else result >> 1
+
+            coordinates.append([lng * 1e-5, lat * 1e-5])
+
+        return coordinates
 
     @staticmethod
     def check_route_intersects_hazards(
@@ -239,37 +325,18 @@ class RoutingService:
     ) -> bool:
         """
         Check if a route intersects any hazard polygons.
-
-        Args:
-            route_coordinates: List of [lng, lat] coordinates along the route
-            hazard_polygons: List of polygons to check
-
-        Returns:
-            True if route intersects any hazard polygon
         """
-        # Simple implementation: check if any route point is inside any polygon
-        # In production, you'd use a proper spatial library like Shapely
-
         for point in route_coordinates:
             lng, lat = point
             for polygon in hazard_polygons:
                 if RoutingService.point_in_polygon(lat, lng, polygon):
                     return True
-
         return False
 
     @staticmethod
     def point_in_polygon(lat: float, lng: float, polygon: List[List[float]]) -> bool:
         """
         Check if a point is inside a polygon using ray casting algorithm.
-
-        Args:
-            lat: Point latitude
-            lng: Point longitude
-            polygon: List of [lng, lat] points defining the polygon
-
-        Returns:
-            True if point is inside polygon
         """
         if not polygon or len(polygon) < 3:
             return False
@@ -282,12 +349,8 @@ class RoutingService:
             xi, yi = polygon[i]
             xj, yj = polygon[j]
 
-            # Check if point is between the y-values of the edge
             if ((yi > lat) != (yj > lat)):
-                # Calculate x-coordinate of intersection
                 x_intersect = xi + (lat - yi) * (xj - xi) / (yj - yi)
-
-                # If intersection is to the right of point, toggle inside/outside
                 if lng < x_intersect:
                     inside = not inside
 
@@ -300,13 +363,6 @@ class RoutingService:
     ) -> Dict[str, Any]:
         """
         Format route data for frontend consumption.
-
-        Args:
-            route_data: Raw route data from API
-            route_type: 'base' or 'adjusted'
-
-        Returns:
-            Formatted route data
         """
         if not route_data:
             return {
@@ -317,10 +373,7 @@ class RoutingService:
                 'available': False
             }
 
-        # Distance is already in kilometers (due to 'units': 'km' in API request)
         distance_km = route_data.get('distance', 0)
-
-        # Convert duration from seconds to minutes
         duration_min = route_data.get('duration', 0) / 60
 
         return {
@@ -331,50 +384,3 @@ class RoutingService:
             'available': True,
             'summary': route_data.get('summary', {})
         }
-
-
-if __name__ == '__main__':
-    # Test the routing service
-    print("Testing routing service...")
-
-    # Test coordinates (Manila to Cebu)
-    test_origin = {'lat': 14.5995, 'lng': 120.9842}
-    test_destination = {'lat': 10.3157, 'lng': 123.8854}
-
-    # Test base route (will fail without API key, but show structure)
-    print(f"\n1. Calculating base route:")
-    print(f"   From: {test_origin}")
-    print(f"   To: {test_destination}")
-
-    # Test point in polygon
-    print("\n2. Testing point-in-polygon:")
-    test_polygon = [
-        [120.0, 14.0],
-        [121.0, 14.0],
-        [121.0, 15.0],
-        [120.0, 15.0],
-        [120.0, 14.0]  # Closing point
-    ]
-    test_point_inside = (14.5, 120.5)
-    test_point_outside = (13.5, 119.5)
-
-    inside_result = RoutingService.point_in_polygon(
-        test_point_inside[0], test_point_inside[1], test_polygon
-    )
-    outside_result = RoutingService.point_in_polygon(
-        test_point_outside[0], test_point_outside[1], test_polygon
-    )
-
-    print(f"   Point {test_point_inside} inside polygon: {inside_result}")
-    print(f"   Point {test_point_outside} inside polygon: {outside_result}")
-
-    # Test route formatting
-    print("\n3. Testing route formatting:")
-    sample_route = {
-        'distance': 5000,  # 5km
-        'duration': 900,   # 15 minutes
-        'coordinates': [[120.0, 14.0], [120.1, 14.1]]
-    }
-
-    formatted = RoutingService.format_route_for_frontend(sample_route)
-    print(f"   Formatted: {formatted}")

@@ -1,41 +1,43 @@
 /**
- * Main JavaScript for AlertoPH frontend functionality.
+ * AlertoPH - USGS-Inspired Hazard & Safe Route Advisory Frontend
  */
 
-// Global state
+// Global Application State
 const AppState = {
-    currentLanguage: 'english',
+    activeTab: 'route',
     map: null,
-    mapMarkers: {
-        origin: null,
-        destination: null,
-        hazards: [],
-        advisory: null
-    },
+    phCenter: [12.8797, 121.7740],
+    defaultZoom: 6,
     mapLayers: {
-        originRoute: null,
+        baseRoute: null,
         safeRoute: null,
-        hazardZones: null
+        hazardZones: null,
+        earthquakesGroup: null,
+        weatherGroup: null,
+        advisoryMarker: null,
+        originMarker: null,
+        destMarker: null
     },
-    currentLocation: null,
+    earthquakes: [],
+    weatherStations: [],
     currentAdvisory: null,
-    currentRoute: null
+    currentRoute: null,
+    mapPickingMode: null
 };
 
-// DOM Elements
-const elements = {
-    locationInput: document.getElementById('location-input'),
-    searchBtn: document.getElementById('search-btn'),
-    latInput: document.getElementById('lat-input'),
-    lngInput: document.getElementById('lng-input'),
-    coordSearchBtn: document.getElementById('coord-search-btn'),
-    pickAdvisoryLocationBtn: document.getElementById('pick-advisory-location'),
-    advisoryResults: document.getElementById('advisory-results'),
-    advisoryLocation: document.getElementById('advisory-location'),
-    advisoryTimestamp: document.getElementById('advisory-timestamp'),
-    earthquakeData: document.getElementById('earthquake-data'),
-    weatherData: document.getElementById('weather-data'),
-    safetyAdvice: document.getElementById('safety-advice'),
+// DOM References
+const el = {
+    // Nav tabs
+    tabBtns: document.querySelectorAll('.tab-btn'),
+    tabPanels: document.querySelectorAll('.tab-panel'),
+    quakeBadge: document.getElementById('quake-badge'),
+
+    // Chips
+    chipUsgs: document.getElementById('chip-usgs'),
+    chipWeather: document.getElementById('chip-weather'),
+    chipRouting: document.getElementById('chip-routing'),
+
+    // Routing Panel
     originInput: document.getElementById('origin-input'),
     destinationInput: document.getElementById('destination-input'),
     useCurrentLocationBtn: document.getElementById('use-current-location'),
@@ -43,281 +45,341 @@ const elements = {
     pickDestinationBtn: document.getElementById('pick-destination'),
     clearPointsBtn: document.getElementById('clear-points'),
     calculateRouteBtn: document.getElementById('calculate-route-btn'),
-    map: document.getElementById('map'),
-    routeInfo: document.getElementById('route-info'),
-    earthquakeStatus: document.getElementById('earthquake-status'),
-    weatherStatus: document.getElementById('weather-status'),
-    routingStatus: document.getElementById('routing-status')
+    routeSummaryCard: document.getElementById('route-summary-card'),
+    routeStatusTitle: document.getElementById('route-status-title'),
+    routeSafetyBadge: document.getElementById('route-safety-badge'),
+    routeDist: document.getElementById('route-dist'),
+    routeTime: document.getElementById('route-time'),
+    routeHazardsCount: document.getElementById('route-hazards-count'),
+    routeAdviceBox: document.getElementById('route-advice-box'),
+    routeAdviceText: document.getElementById('route-advice-text'),
+
+    // Earthquake Panel
+    earthquakeFeed: document.getElementById('earthquake-feed'),
+    refreshQuakesBtn: document.getElementById('refresh-quakes-btn'),
+    quakeFilterPills: document.querySelectorAll('.filter-pill'),
+
+    // Weather Panel
+    weatherStationList: document.getElementById('weather-station-list'),
+    refreshWeatherBtn: document.getElementById('refresh-weather-btn'),
+
+    // Advisory Panel
+    locationInput: document.getElementById('location-input'),
+    searchBtn: document.getElementById('search-btn'),
+    toggleCoordBtn: document.getElementById('toggle-coord-btn'),
+    coordInputsDrawer: document.getElementById('coord-inputs-drawer'),
+    latInput: document.getElementById('lat-input'),
+    lngInput: document.getElementById('lng-input'),
+    coordSearchBtn: document.getElementById('coord-search-btn'),
+    pickAdvisoryBtn: document.getElementById('pick-advisory-location'),
+    advisoryResults: document.getElementById('advisory-results'),
+    advisoryLocation: document.getElementById('advisory-location'),
+    advisoryTimestamp: document.getElementById('advisory-timestamp'),
+    safetyAlertBox: document.getElementById('safety-alert-box'),
+    safetySeverityTitle: document.getElementById('safety-severity-title'),
+    safetySeverityDesc: document.getElementById('safety-severity-desc'),
+    earthquakeData: document.getElementById('earthquake-data'),
+    weatherData: document.getElementById('weather-data'),
+    safetyAdvice: document.getElementById('safety-advice'),
+
+    // Map UI
+    mapModeIndicator: document.getElementById('map-mode-indicator'),
+    mapRecenterBtn: document.getElementById('map-recenter-btn'),
+    mapLegendToggle: document.getElementById('map-legend-toggle'),
+    mapLegendCard: document.getElementById('map-legend-card'),
+    legendCloseBtn: document.getElementById('legend-close-btn'),
+    mobileToggleBtn: document.getElementById('mobile-toggle-btn'),
+    mobileToggleLabel: document.getElementById('mobile-toggle-label'),
+    sidebar: document.getElementById('sidebar')
 };
 
-// Initialize the application
-function init() {
+// Initialize App
+document.addEventListener('DOMContentLoaded', () => {
+    initMap();
     setupEventListeners();
-    initializeMap();
-    checkApiStatus();
-}
+    setupTabSwitching();
+    setupGeocodingAutocomplete();
 
-// Set up event listeners
-function setupEventListeners() {
-    // Location search
-    elements.searchBtn.addEventListener('click', () => searchByLocation(elements.locationInput.value));
-    elements.coordSearchBtn.addEventListener('click', searchByCoordinates);
-    elements.locationInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') searchByLocation(elements.locationInput.value);
+    // Initial background data fetch
+    loadEarthquakes(2.0);
+    loadRegionalWeather();
+    checkSystemHealth();
+});
+
+/* -------------------------------------------------------------
+   Map Initialization
+------------------------------------------------------------- */
+function initMap() {
+    AppState.map = L.map('map', {
+        zoomControl: true
+    }).setView(AppState.phCenter, AppState.defaultZoom);
+
+    // Free & Open Base Layers (100% Free, Zero API Key required, No Watermarks)
+    const osmStandard = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19
     });
 
-    // Advisory location picking
-    elements.pickAdvisoryLocationBtn.addEventListener('click', () => setMapPickingMode('advisory'));
-
-    // Route planning
-    elements.useCurrentLocationBtn.addEventListener('click', useCurrentLocation);
-    elements.pickOriginBtn.addEventListener('click', () => setMapPickingMode('origin'));
-    elements.pickDestinationBtn.addEventListener('click', () => setMapPickingMode('destination'));
-    elements.clearPointsBtn.addEventListener('click', clearMapPoints);
-    elements.calculateRouteBtn.addEventListener('click', calculateRoute);
-
-    // Dynamic Geocoding Autocomplete for location input
-    attachGeocodeAutocomplete(elements.locationInput, (item) => {
-        elements.locationInput.value = item.display_name || item.name;
-        elements.latInput.value = item.latitude.toFixed(4);
-        elements.lngInput.value = item.longitude.toFixed(4);
-        setAdvisoryLocationMarker(item.latitude, item.longitude, item.name);
-        searchByCoordinates();
-    });
-
-    // Dynamic Geocoding Autocomplete for route inputs
-    attachGeocodeAutocomplete(elements.originInput, (item) => {
-        elements.originInput.value = `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`;
-        setOriginPoint(item.latitude, item.longitude);
-    });
-
-    attachGeocodeAutocomplete(elements.destinationInput, (item) => {
-        elements.destinationInput.value = `${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`;
-        setDestinationPoint(item.latitude, item.longitude);
-    });
-
-    // Close autocomplete on external click
-    document.addEventListener('click', (e) => {
-        if (!e.target.closest('.input-group')) {
-            clearAllAutocomplete();
-        }
-    });
-}
-
-// Initialize Leaflet map
-function initializeMap() {
-    const phCenter = [12.8797, 121.7740]; // Center of Philippines
-    const zoomLevel = 6;
-
-    AppState.map = L.map('map').setView(phCenter, zoomLevel);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
+    const esriTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri, USGS, NOAA',
         maxZoom: 18
-    }).addTo(AppState.map);
+    });
+
+    const esriStreet = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+        attribution: 'Tiles &copy; Esri',
+        maxZoom: 18
+    });
+
+    // Add default OpenStreetMap layer
+    osmStandard.addTo(AppState.map);
+
+    // Layer groups for dynamic data
+    AppState.mapLayers.earthquakesGroup = L.layerGroup().addTo(AppState.map);
+    AppState.mapLayers.weatherGroup = L.layerGroup().addTo(AppState.map);
+
+    // Basemap selector
+    L.control.layers({
+        'OpenStreetMap': osmStandard,
+        'Topographic (USGS/Esri)': esriTopo,
+        'Street Map': esriStreet
+    }, null, { position: 'bottomright' }).addTo(AppState.map);
 
     AppState.map.on('click', handleMapClick);
 }
 
-// Map point picking
-let mapPickingMode = null;
+/* -------------------------------------------------------------
+   Tab and Mode Switching
+------------------------------------------------------------- */
+function setupTabSwitching() {
+    el.tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tab = btn.dataset.tab;
+            switchMode(tab);
+        });
+    });
+}
 
-function setMapPickingMode(mode) {
-    mapPickingMode = mode;
-    alert(`Click on the map to set ${mode}. Click again to cancel.`);
+function switchMode(tabName) {
+    AppState.activeTab = tabName;
+
+    // Update active tab buttons
+    el.tabBtns.forEach(btn => {
+        const isActive = btn.dataset.tab === tabName;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-selected', isActive);
+    });
+
+    // Update active panel
+    el.tabPanels.forEach(panel => {
+        panel.classList.toggle('active', panel.id === `panel-${tabName}`);
+    });
+
+    // Update Map Indicator & Layer visibility
+    updateMapForActiveTab(tabName);
+}
+
+function updateMapForActiveTab(tab) {
+    const indicator = el.mapModeIndicator;
+
+    switch (tab) {
+        case 'route':
+            indicator.innerHTML = '<i class="fas fa-route text-primary"></i> <span>Safe Route View</span>';
+            AppState.mapLayers.earthquakesGroup.clearLayers();
+            AppState.mapLayers.weatherGroup.clearLayers();
+            if (AppState.currentRoute) {
+                drawRouteOnMap(AppState.currentRoute);
+            }
+            break;
+
+        case 'earthquake':
+            indicator.innerHTML = '<i class="fas fa-bolt text-warning"></i> <span>USGS Seismic View</span>';
+            renderEarthquakesOnMap(AppState.earthquakes);
+            break;
+
+        case 'weather':
+            indicator.innerHTML = '<i class="fas fa-cloud-showers-heavy text-info"></i> <span>Weather & Rain Radar</span>';
+            renderWeatherStationsOnMap(AppState.weatherStations);
+            break;
+
+        case 'advisory':
+            indicator.innerHTML = '<i class="fas fa-search-location text-safe"></i> <span>Location Advisory View</span>';
+            AppState.mapLayers.earthquakesGroup.clearLayers();
+            AppState.mapLayers.weatherGroup.clearLayers();
+            break;
+    }
+}
+
+/* -------------------------------------------------------------
+   Event Listeners Setup
+------------------------------------------------------------- */
+function setupEventListeners() {
+    // Routing panel
+    el.calculateRouteBtn.addEventListener('click', calculateRoute);
+    el.useCurrentLocationBtn.addEventListener('click', useCurrentLocation);
+    el.pickOriginBtn.addEventListener('click', () => startMapPicking('origin'));
+    el.pickDestinationBtn.addEventListener('click', () => startMapPicking('destination'));
+    el.clearPointsBtn.addEventListener('click', clearRoutePoints);
+
+    // Advisory panel
+    el.searchBtn.addEventListener('click', () => searchByLocation(el.locationInput.value));
+    el.locationInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') searchByLocation(el.locationInput.value);
+    });
+    el.toggleCoordBtn.addEventListener('click', () => {
+        const isHidden = el.coordInputsDrawer.style.display === 'none';
+        el.coordInputsDrawer.style.display = isHidden ? 'flex' : 'none';
+    });
+    el.coordSearchBtn.addEventListener('click', searchByCoordinates);
+    el.pickAdvisoryBtn.addEventListener('click', () => startMapPicking('advisory'));
+
+    // Earthquake feed
+    el.refreshQuakesBtn.addEventListener('click', () => loadEarthquakes(2.0));
+    el.quakeFilterPills.forEach(pill => {
+        pill.addEventListener('click', () => {
+            el.quakeFilterPills.forEach(p => p.classList.remove('active'));
+            pill.classList.add('active');
+            const minMag = parseFloat(pill.dataset.minMag) || 2.0;
+            loadEarthquakes(minMag);
+        });
+    });
+
+    // Weather feed
+    el.refreshWeatherBtn.addEventListener('click', loadRegionalWeather);
+
+    // Map tools
+    el.mapRecenterBtn.addEventListener('click', () => {
+        AppState.map.setView(AppState.phCenter, AppState.defaultZoom);
+    });
+
+    el.mapLegendToggle.addEventListener('click', () => {
+        const isVisible = el.mapLegendCard.style.display !== 'none';
+        el.mapLegendCard.style.display = isVisible ? 'none' : 'flex';
+        el.mapLegendCard.classList.toggle('mobile-open');
+    });
+
+    el.legendCloseBtn.addEventListener('click', () => {
+        el.mapLegendCard.style.display = 'none';
+        el.mapLegendCard.classList.remove('mobile-open');
+    });
+
+    // Mobile quick toggle
+    el.mobileToggleBtn.addEventListener('click', () => {
+        el.sidebar.scrollIntoView({ behavior: 'smooth' });
+    });
+}
+
+/* -------------------------------------------------------------
+   Map Interaction & Waypoints
+------------------------------------------------------------- */
+function startMapPicking(mode) {
+    AppState.mapPickingMode = mode;
+    const labels = {
+        origin: 'Origin point',
+        destination: 'Destination point',
+        advisory: 'Location to check'
+    };
+    alert(`Click anywhere on the map to set ${labels[mode]}.`);
 }
 
 function handleMapClick(e) {
-    if (!mapPickingMode) return;
+    if (!AppState.mapPickingMode) return;
 
     const lat = e.latlng.lat;
     const lng = e.latlng.lng;
 
-    switch (mapPickingMode) {
+    switch (AppState.mapPickingMode) {
         case 'origin':
-            setOriginPoint(lat, lng);
+            setOriginPoint(lat, lng, `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
             break;
         case 'destination':
-            setDestinationPoint(lat, lng);
+            setDestinationPoint(lat, lng, `${lat.toFixed(4)}, ${lng.toFixed(4)}`);
             break;
         case 'advisory':
-            setAdvisoryLocationFromMap(lat, lng);
+            el.latInput.value = lat.toFixed(4);
+            el.lngInput.value = lng.toFixed(4);
+            el.locationInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+            setAdvisoryMarker(lat, lng, 'Selected Location');
+            searchByCoordinates();
             break;
     }
 
-    mapPickingMode = null;
+    AppState.mapPickingMode = null;
 }
 
-function setOriginPoint(lat, lng) {
-    if (AppState.mapMarkers.origin) {
-        AppState.map.removeLayer(AppState.mapMarkers.origin);
+function setOriginPoint(lat, lng, label) {
+    if (AppState.mapLayers.originMarker) {
+        AppState.map.removeLayer(AppState.mapLayers.originMarker);
     }
 
-    AppState.mapMarkers.origin = L.marker([lat, lng], {
+    AppState.mapLayers.originMarker = L.marker([lat, lng], {
         icon: L.divIcon({
-            className: 'map-marker origin',
-            html: '<i class="fas fa-map-marker-alt" style="color: #1e88e5; font-size: 24px;"></i>',
-            iconSize: [24, 24]
+            className: 'custom-pin origin-pin',
+            html: '<div style="background:#2563eb;color:#fff;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.3);border:2px solid #fff;"><i class="fas fa-map-marker-alt"></i></div>',
+            iconSize: [30, 30],
+            iconAnchor: [15, 30]
         })
     }).addTo(AppState.map);
 
-    elements.originInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    el.originInput.value = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
-function setDestinationPoint(lat, lng) {
-    if (AppState.mapMarkers.destination) {
-        AppState.map.removeLayer(AppState.mapMarkers.destination);
+function setDestinationPoint(lat, lng, label) {
+    if (AppState.mapLayers.destMarker) {
+        AppState.map.removeLayer(AppState.mapLayers.destMarker);
     }
 
-    AppState.mapMarkers.destination = L.marker([lat, lng], {
+    AppState.mapLayers.destMarker = L.marker([lat, lng], {
         icon: L.divIcon({
-            className: 'map-marker destination',
-            html: '<i class="fas fa-flag-checkered" style="color: #ff9800; font-size: 24px;"></i>',
-            iconSize: [24, 24]
+            className: 'custom-pin dest-pin',
+            html: '<div style="background:#f59e0b;color:#fff;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.3);border:2px solid #fff;"><i class="fas fa-flag-checkered"></i></div>',
+            iconSize: [30, 30],
+            iconAnchor: [15, 30]
         })
     }).addTo(AppState.map);
 
-    elements.destinationInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    el.destinationInput.value = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
-function setAdvisoryLocationMarker(lat, lng, title) {
-    if (AppState.mapMarkers.advisory) {
-        AppState.map.removeLayer(AppState.mapMarkers.advisory);
+function setAdvisoryMarker(lat, lng, title) {
+    if (AppState.mapLayers.advisoryMarker) {
+        AppState.map.removeLayer(AppState.mapLayers.advisoryMarker);
     }
 
-    AppState.mapMarkers.advisory = L.marker([lat, lng], {
+    AppState.mapLayers.advisoryMarker = L.marker([lat, lng], {
         icon: L.divIcon({
-            className: 'map-marker advisory',
-            html: '<i class="fas fa-exclamation-circle" style="color: #4caf50; font-size: 24px;"></i>',
-            iconSize: [24, 24]
+            className: 'custom-pin advisory-pin',
+            html: '<div style="background:#10b981;color:#fff;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 8px rgba(0,0,0,0.3);border:2px solid #fff;"><i class="fas fa-search-location"></i></div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 32]
         })
     }).addTo(AppState.map);
 
     if (title) {
-        AppState.mapMarkers.advisory.bindPopup(`<b>${title}</b>`).openPopup();
+        AppState.mapLayers.advisoryMarker.bindPopup(`<strong>${escapeHtml(title)}</strong>`).openPopup();
     }
 
-    AppState.map.setView([lat, lng], 10);
+    AppState.map.setView([lat, lng], 11);
 }
 
-function clearMapPoints() {
-    if (AppState.mapMarkers.origin) {
-        AppState.map.removeLayer(AppState.mapMarkers.origin);
-        AppState.mapMarkers.origin = null;
+function clearRoutePoints() {
+    if (AppState.mapLayers.originMarker) {
+        AppState.map.removeLayer(AppState.mapLayers.originMarker);
+        AppState.mapLayers.originMarker = null;
     }
-    if (AppState.mapMarkers.destination) {
-        AppState.map.removeLayer(AppState.mapMarkers.destination);
-        AppState.mapMarkers.destination = null;
+    if (AppState.mapLayers.destMarker) {
+        AppState.map.removeLayer(AppState.mapLayers.destMarker);
+        AppState.mapLayers.destMarker = null;
     }
-
-    elements.originInput.value = '';
-    elements.destinationInput.value = '';
-
-    clearRoutes();
+    clearRouteLayers();
+    el.originInput.value = '';
+    el.destinationInput.value = '';
+    el.routeSummaryCard.style.display = 'none';
 }
 
-function setAdvisoryLocationFromMap(lat, lng) {
-    setAdvisoryLocationMarker(lat, lng);
-    elements.latInput.value = lat.toFixed(4);
-    elements.lngInput.value = lng.toFixed(4);
-    elements.locationInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-    setTimeout(() => searchByCoordinates(), 300);
-}
-
-// Dynamic Geocoding and Autocomplete Implementation
-const debounceTimers = new Map();
-
-function attachGeocodeAutocomplete(inputElement, onSelectCallback) {
-    if (!inputElement) return;
-
-    inputElement.addEventListener('input', () => {
-        const query = inputElement.value.trim();
-        if (query.length < 2) {
-            clearAutocompleteFor(inputElement);
-            return;
-        }
-
-        // Debounce API calls (300ms)
-        if (debounceTimers.has(inputElement)) {
-            clearTimeout(debounceTimers.get(inputElement));
-        }
-
-        const timer = setTimeout(() => {
-            fetchGeocodeSuggestions(query, inputElement, onSelectCallback);
-        }, 300);
-
-        debounceTimers.set(inputElement, timer);
-    });
-}
-
-function fetchGeocodeSuggestions(query, inputElement, onSelectCallback) {
-    fetch(`/api/geocode?q=${encodeURIComponent(query)}&limit=6`)
-        .then(response => response.json())
-        .then(data => {
-            if (data.results && data.results.length > 0) {
-                renderAutocompleteDropdown(inputElement, data.results, onSelectCallback);
-            } else {
-                clearAutocompleteFor(inputElement);
-            }
-        })
-        .catch(err => {
-            console.warn('Geocoding autocomplete error:', err);
-            clearAutocompleteFor(inputElement);
-        });
-}
-
-function renderAutocompleteDropdown(inputElement, items, onSelectCallback) {
-    clearAutocompleteFor(inputElement);
-
-    const container = document.createElement('div');
-    container.className = 'autocomplete-container';
-    container.dataset.owner = inputElement.id;
-
-    items.forEach(item => {
-        const row = document.createElement('div');
-        row.className = 'autocomplete-item';
-
-        const mainLabel = item.name || 'Location';
-        const subLabel = item.display_name || item.region || `${item.latitude.toFixed(3)}, ${item.longitude.toFixed(3)}`;
-
-        row.innerHTML = `
-            <strong><i class="fas fa-map-pin" style="margin-right: 6px; color: var(--primary-color);"></i>${escapeHtml(mainLabel)}</strong>
-            <small>${escapeHtml(subLabel)}</small>
-        `;
-
-        row.addEventListener('click', () => {
-            clearAutocompleteFor(inputElement);
-            onSelectCallback(item);
-        });
-
-        container.appendChild(row);
-    });
-
-    inputElement.parentNode.appendChild(container);
-}
-
-function clearAutocompleteFor(inputElement) {
-    const parent = inputElement.parentNode;
-    if (parent) {
-        const container = parent.querySelector('.autocomplete-container');
-        if (container) container.remove();
-    }
-}
-
-function clearAllAutocomplete() {
-    document.querySelectorAll('.autocomplete-container').forEach(el => el.remove());
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function clearRoutes() {
-    if (AppState.mapLayers.originRoute) {
-        AppState.map.removeLayer(AppState.mapLayers.originRoute);
-        AppState.mapLayers.originRoute = null;
+function clearRouteLayers() {
+    if (AppState.mapLayers.baseRoute) {
+        AppState.map.removeLayer(AppState.mapLayers.baseRoute);
+        AppState.mapLayers.baseRoute = null;
     }
     if (AppState.mapLayers.safeRoute) {
         AppState.map.removeLayer(AppState.mapLayers.safeRoute);
@@ -327,592 +389,628 @@ function clearRoutes() {
         AppState.map.removeLayer(AppState.mapLayers.hazardZones);
         AppState.mapLayers.hazardZones = null;
     }
-    updateRouteInfo(null);
 }
 
-// Search by location name or address
-function searchByLocation(location) {
-    if (!location.trim()) {
-        alert('Please enter a location name.');
+/* -------------------------------------------------------------
+   Dynamic Geocoding Autocomplete
+------------------------------------------------------------- */
+const debounceTimers = new Map();
+
+function setupGeocodingAutocomplete() {
+    attachGeocode(el.originInput, (item) => {
+        setOriginPoint(item.latitude, item.longitude, item.display_name || item.name);
+    });
+
+    attachGeocode(el.destinationInput, (item) => {
+        setDestinationPoint(item.latitude, item.longitude, item.display_name || item.name);
+    });
+
+    attachGeocode(el.locationInput, (item) => {
+        el.locationInput.value = item.display_name || item.name;
+        el.latInput.value = item.latitude.toFixed(4);
+        el.lngInput.value = item.longitude.toFixed(4);
+        setAdvisoryMarker(item.latitude, item.longitude, item.name);
+        searchByCoordinates();
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.input-wrapper') && !e.target.closest('.autocomplete-container')) {
+            clearAllAutocomplete();
+        }
+    });
+}
+
+function attachGeocode(input, onSelect) {
+    if (!input) return;
+
+    input.addEventListener('input', () => {
+        const q = input.value.trim();
+        if (q.length < 2) {
+            clearAutocompleteFor(input);
+            return;
+        }
+
+        if (debounceTimers.has(input)) clearTimeout(debounceTimers.get(input));
+
+        debounceTimers.set(input, setTimeout(() => {
+            fetch(`/api/geocode?q=${encodeURIComponent(q)}&limit=5`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.results && data.results.length > 0) {
+                        renderAutocomplete(input, data.results, onSelect);
+                    } else {
+                        clearAutocompleteFor(input);
+                    }
+                })
+                .catch(() => clearAutocompleteFor(input));
+        }, 300));
+    });
+}
+
+function renderAutocomplete(input, items, onSelect) {
+    clearAutocompleteFor(input);
+
+    const container = document.createElement('div');
+    container.className = 'autocomplete-container';
+
+    items.forEach(item => {
+        const row = document.createElement('div');
+        row.className = 'autocomplete-item';
+        row.innerHTML = `
+            <strong><i class="fas fa-location-dot" style="color:#2563eb; margin-right:6px;"></i>${escapeHtml(item.name)}</strong>
+            <small>${escapeHtml(item.display_name || item.region || `${item.latitude.toFixed(3)}, ${item.longitude.toFixed(3)}`)}</small>
+        `;
+        row.addEventListener('click', () => {
+            clearAutocompleteFor(input);
+            onSelect(item);
+        });
+        container.appendChild(row);
+    });
+
+    input.parentNode.appendChild(container);
+}
+
+function clearAutocompleteFor(input) {
+    const parent = input.parentNode;
+    if (parent) {
+        const c = parent.querySelector('.autocomplete-container');
+        if (c) c.remove();
+    }
+}
+
+function clearAllAutocomplete() {
+    document.querySelectorAll('.autocomplete-container').forEach(c => c.remove());
+}
+
+/* -------------------------------------------------------------
+   Safe Route Calculation & Visualization
+------------------------------------------------------------- */
+async function resolveInputCoords(str) {
+    const parts = str.split(',').map(s => parseFloat(s.trim()));
+    if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        return { lat: parts[0], lng: parts[1] };
+    }
+
+    try {
+        const res = await fetch(`/api/geocode?q=${encodeURIComponent(str)}&limit=1`);
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+            return { lat: data.results[0].latitude, lng: data.results[0].longitude };
+        }
+    } catch (e) {
+        console.warn('Geocoding resolve failed:', e);
+    }
+    return null;
+}
+
+async function calculateRoute() {
+    const origVal = el.originInput.value.trim();
+    const destVal = el.destinationInput.value.trim();
+
+    if (!origVal || !destVal) {
+        alert('Please provide both Origin and Destination.');
         return;
     }
 
-    showLoading('advisory');
+    el.calculateRouteBtn.disabled = true;
+    el.calculateRouteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating Safe Route...';
     clearAllAutocomplete();
 
-    fetch(`/api/advisory?location=${encodeURIComponent(location)}&lang=english`)
-        .then(async response => {
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `HTTP error! status: ${response.status}`);
+    const originCoords = await resolveInputCoords(origVal);
+    const destCoords = await resolveInputCoords(destVal);
+
+    if (!originCoords || !destCoords) {
+        el.calculateRouteBtn.disabled = false;
+        el.calculateRouteBtn.innerHTML = '<i class="fas fa-shield"></i> Calculate Safe Route';
+        alert('Could not pinpoint coordinates for origin or destination. Please choose a suggestion from search.');
+        return;
+    }
+
+    setOriginPoint(originCoords.lat, originCoords.lng);
+    setDestinationPoint(destCoords.lat, destCoords.lng);
+    clearRouteLayers();
+
+    try {
+        const response = await fetch('/api/route', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                origin: originCoords,
+                destination: destCoords,
+                lang: 'english'
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok || data.error) throw new Error(data.error || 'Failed to calculate route');
+
+        AppState.currentRoute = data;
+        displayRouteSummary(data);
+        drawRouteOnMap(data);
+        updateHealthChip(el.chipRouting, true);
+
+    } catch (err) {
+        alert(`Routing error: ${err.message}`);
+        updateHealthChip(el.chipRouting, false);
+    } finally {
+        el.calculateRouteBtn.disabled = false;
+        el.calculateRouteBtn.innerHTML = '<i class="fas fa-shield"></i> Calculate Safe Route';
+    }
+}
+
+function displayRouteSummary(routeData) {
+    el.routeSummaryCard.style.display = 'flex';
+
+    const activeRoute = routeData.adjusted_route || routeData.base_route;
+    const hasHazard = (routeData.hazards?.total_count || 0) > 0;
+
+    // Safety badge & title
+    if (hasHazard) {
+        el.routeStatusTitle.textContent = 'Hazard Avoidance Detour Active';
+        el.routeSafetyBadge.textContent = 'ADJUSTED (SAFE)';
+        el.routeSafetyBadge.className = 'safety-badge';
+    } else {
+        el.routeStatusTitle.textContent = 'Direct Safe Route';
+        el.routeSafetyBadge.textContent = 'CLEAR / SAFE';
+        el.routeSafetyBadge.className = 'safety-badge';
+    }
+
+    // Distance
+    if (activeRoute?.distance_km !== undefined) {
+        const km = parseFloat(activeRoute.distance_km);
+        el.routeDist.textContent = isNaN(km) ? `${activeRoute.distance_km}` : `${km.toFixed(1)} km`;
+    } else {
+        el.routeDist.textContent = '-';
+    }
+
+    // Duration
+    if (activeRoute?.duration_min !== undefined) {
+        const mins = parseFloat(activeRoute.duration_min);
+        if (!isNaN(mins)) {
+            if (mins >= 60) {
+                const hrs = Math.floor(mins / 60);
+                const rem = Math.round(mins % 60);
+                el.routeTime.textContent = `${hrs}h ${rem}m`;
+            } else {
+                el.routeTime.textContent = `${Math.round(mins)} min`;
             }
-            return data;
-        })
+        } else {
+            el.routeTime.textContent = `${activeRoute.duration_min}`;
+        }
+    } else {
+        el.routeTime.textContent = '-';
+    }
+
+    // Hazard Count
+    el.routeHazardsCount.textContent = routeData.hazards?.total_count || 0;
+
+    // Advice text
+    el.routeAdviceText.textContent = routeData.advice?.summary || 'Route is monitored for active seismic and flood hazards.';
+}
+
+function drawRouteOnMap(routeData) {
+    clearRouteLayers();
+
+    const boundsPoints = [];
+
+    // 1. Draw Base/Direct Route
+    if (routeData.base_route?.coordinates?.length > 0) {
+        const basePts = routeData.base_route.coordinates.map(c => [c[1], c[0]]);
+        AppState.mapLayers.baseRoute = L.polyline(basePts, {
+            color: routeData.adjusted_route ? '#64748b' : '#10b981',
+            weight: routeData.adjusted_route ? 4 : 6,
+            dashArray: routeData.adjusted_route ? '6, 6' : null,
+            opacity: 0.8
+        }).addTo(AppState.map);
+
+        basePts.forEach(p => boundsPoints.push(p));
+    }
+
+    // 2. Draw Safe / Detoured Route in Vibrant Emerald Green
+    if (routeData.adjusted_route?.coordinates?.length > 0) {
+        const safePts = routeData.adjusted_route.coordinates.map(c => [c[1], c[0]]);
+        AppState.mapLayers.safeRoute = L.polyline(safePts, {
+            color: '#10b981',
+            weight: 6,
+            opacity: 0.95
+        }).addTo(AppState.map);
+
+        safePts.forEach(p => boundsPoints.push(p));
+    }
+
+    // 3. Draw Flood & Hazard Zones in Semi-Transparent Red
+    if (routeData.hazard_zones?.length > 0) {
+        const zoneFeatures = [];
+        routeData.hazard_zones.forEach(zone => {
+            if (zone.geojson?.features) {
+                zone.geojson.features.forEach(f => zoneFeatures.push(f));
+            }
+        });
+
+        if (zoneFeatures.length > 0) {
+            AppState.mapLayers.hazardZones = L.geoJSON(zoneFeatures, {
+                style: {
+                    color: '#ef4444',
+                    weight: 2,
+                    fillColor: '#ef4444',
+                    fillOpacity: 0.3
+                }
+            }).addTo(AppState.map);
+        }
+    }
+
+    if (boundsPoints.length > 0) {
+        AppState.map.fitBounds(L.latLngBounds(boundsPoints), { padding: [40, 40] });
+    }
+}
+
+/* -------------------------------------------------------------
+   USGS Earthquake Feed & Map Layer
+------------------------------------------------------------- */
+function loadEarthquakes(minMag = 2.0) {
+    el.earthquakeFeed.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading USGS feed...</div>';
+
+    fetch(`/api/earthquakes?min_mag=${minMag}`)
+        .then(r => r.json())
         .then(data => {
-            if (data.error) {
-                throw new Error(data.error);
+            AppState.earthquakes = data.earthquakes || [];
+            el.quakeBadge.textContent = AppState.earthquakes.length;
+            renderEarthquakeFeed(AppState.earthquakes);
+
+            if (AppState.activeTab === 'earthquake') {
+                renderEarthquakesOnMap(AppState.earthquakes);
             }
-            AppState.currentAdvisory = data;
-            displayAdvisory(data);
-            updateApiStatus('earthquake', data.earthquakes ? 'active' : 'warning');
-            updateApiStatus('weather', data.weather && !data.weather.error ? 'active' : 'warning');
+
+            updateHealthChip(el.chipUsgs, true);
         })
-        .catch(error => {
-            console.error('Error fetching advisory:', error);
-            showError('advisory', `Failed to get advisory: ${error.message}`);
-        })
-        .finally(() => {
-            hideLoading('advisory');
+        .catch(err => {
+            console.error('Earthquake fetch error:', err);
+            el.earthquakeFeed.innerHTML = '<div class="error-state">Failed to load earthquake data.</div>';
+            updateHealthChip(el.chipUsgs, false);
         });
 }
 
-// Search by coordinates
+function renderEarthquakeFeed(quakes) {
+    if (!quakes || quakes.length === 0) {
+        el.earthquakeFeed.innerHTML = '<div class="no-data">No recent earthquakes recorded in this magnitude range.</div>';
+        return;
+    }
+
+    let html = '';
+    quakes.forEach(q => {
+        const mag = q.magnitude ? q.magnitude.toFixed(1) : '?';
+        const magCategory = getMagCategory(q.magnitude);
+        const timeAgo = formatTimeAgo(q.time);
+
+        html += `
+            <div class="quake-card mag-${magCategory}" onclick="focusEarthquake(${q.latitude}, ${q.longitude}, ${q.magnitude})">
+                <div class="quake-mag-badge ${magCategory}">${mag}</div>
+                <div class="quake-info">
+                    <span class="quake-place">${escapeHtml(q.place || 'Philippine Region')}</span>
+                    <div class="quake-meta">
+                        <span><i class="far fa-clock"></i> ${timeAgo}</span>
+                        <span><i class="fas fa-arrows-down-to-line"></i> ${q.depth_km ? q.depth_km.toFixed(0) : '10'} km depth</span>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    el.earthquakeFeed.innerHTML = html;
+}
+
+function renderEarthquakesOnMap(quakes) {
+    AppState.mapLayers.earthquakesGroup.clearLayers();
+
+    quakes.forEach(q => {
+        const mag = q.magnitude || 2.0;
+        const color = getMagColor(mag);
+        const radius = Math.max(5, mag * 3.5);
+
+        const circle = L.circleMarker([q.latitude, q.longitude], {
+            radius: radius,
+            fillColor: color,
+            color: '#ffffff',
+            weight: 1.5,
+            opacity: 0.9,
+            fillOpacity: 0.75
+        });
+
+        circle.bindPopup(`
+            <div style="font-family: inherit;">
+                <h4 style="margin:0 0 4px; color:${color}; font-weight:800;">Magnitude ${mag.toFixed(1)}</h4>
+                <p style="margin:0 0 4px; font-weight:600;">${escapeHtml(q.place || 'Philippine Region')}</p>
+                <small style="color:#64748b;">Depth: ${q.depth_km?.toFixed(0) || 10} km | ${formatTimeAgo(q.time)}</small>
+            </div>
+        `);
+
+        AppState.mapLayers.earthquakesGroup.addLayer(circle);
+    });
+}
+
+function focusEarthquake(lat, lng, mag) {
+    switchMode('earthquake');
+    AppState.map.flyTo([lat, lng], 9, { duration: 1.2 });
+}
+
+/* -------------------------------------------------------------
+   Weather & Rain Stations Feed & Map Layer
+------------------------------------------------------------- */
+function loadRegionalWeather() {
+    el.weatherStationList.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Fetching weather stations...</div>';
+
+    fetch('/api/weather/regional')
+        .then(r => r.json())
+        .then(data => {
+            AppState.weatherStations = data.stations || [];
+            renderWeatherStationList(AppState.weatherStations);
+
+            if (AppState.activeTab === 'weather') {
+                renderWeatherStationsOnMap(AppState.weatherStations);
+            }
+
+            updateHealthChip(el.chipWeather, true);
+        })
+        .catch(err => {
+            console.error('Weather stations error:', err);
+            el.weatherStationList.innerHTML = '<div class="error-state">Failed to load weather stations.</div>';
+            updateHealthChip(el.chipWeather, false);
+        });
+}
+
+function renderWeatherStationList(stations) {
+    if (!stations || stations.length === 0) {
+        el.weatherStationList.innerHTML = '<div class="no-data">Weather data unavailable.</div>';
+        return;
+    }
+
+    let html = '';
+    stations.forEach(s => {
+        const isHeavy = s.is_heavy_rain || (s.rain_1h >= 7.5);
+        html += `
+            <div class="station-card ${isHeavy ? 'heavy-alert' : ''}" onclick="focusStation(${s.lat}, ${s.lng})">
+                <div class="station-info">
+                    <span class="station-city">${escapeHtml(s.name)}</span>
+                    <span class="station-condition">${escapeHtml(s.condition || 'Clear')}</span>
+                </div>
+                <div class="station-metrics">
+                    <span class="station-temp">${s.temperature !== undefined ? `${Math.round(s.temperature)}°C` : '-'}</span>
+                    <span class="station-rain ${isHeavy ? 'heavy' : ''}">
+                        <i class="fas fa-droplet"></i> ${s.rain_1h ? s.rain_1h.toFixed(1) : '0.0'} mm/h
+                    </span>
+                </div>
+            </div>
+        `;
+    });
+
+    el.weatherStationList.innerHTML = html;
+}
+
+function renderWeatherStationsOnMap(stations) {
+    AppState.mapLayers.weatherGroup.clearLayers();
+
+    stations.forEach(s => {
+        const isHeavy = s.is_heavy_rain || (s.rain_1h >= 7.5);
+        const iconHtml = `
+            <div class="custom-weather-marker ${isHeavy ? 'heavy-rain' : ''}">
+                <i class="fas ${isHeavy ? 'fa-cloud-bolt text-danger' : 'fa-cloud-sun text-info'}"></i>
+                <span>${s.temperature !== undefined ? Math.round(s.temperature) : '-'}°C</span>
+            </div>
+        `;
+
+        const marker = L.marker([s.lat, s.lng], {
+            icon: L.divIcon({
+                className: 'custom-weather-div',
+                html: iconHtml,
+                iconSize: [60, 26],
+                iconAnchor: [30, 13]
+            })
+        });
+
+        marker.bindPopup(`
+            <div style="font-family: inherit;">
+                <h4 style="margin:0 0 4px; font-weight:800;">${escapeHtml(s.name)}</h4>
+                <p style="margin:0 0 4px;"><strong>${s.temperature?.toFixed(1)}°C</strong> - ${escapeHtml(s.condition || '')}</p>
+                <p style="margin:0; color:${isHeavy ? '#ef4444' : '#0284c7'}; font-weight:700;">
+                    Rainfall: ${s.rain_1h?.toFixed(1) || 0} mm/h ${isHeavy ? '(FLOOD ALERT)' : ''}
+                </p>
+            </div>
+        `);
+
+        AppState.mapLayers.weatherGroup.addLayer(marker);
+    });
+}
+
+function focusStation(lat, lng) {
+    switchMode('weather');
+    AppState.map.flyTo([lat, lng], 10, { duration: 1.2 });
+}
+
+/* -------------------------------------------------------------
+   Location Advisory Query
+------------------------------------------------------------- */
+function searchByLocation(query) {
+    if (!query.trim()) {
+        alert('Please enter a location or landmark name.');
+        return;
+    }
+
+    clearAllAutocomplete();
+    fetchAdvisory(`/api/advisory?location=${encodeURIComponent(query)}&lang=english`);
+}
+
 function searchByCoordinates() {
-    const lat = parseFloat(elements.latInput.value);
-    const lng = parseFloat(elements.lngInput.value);
+    const lat = parseFloat(el.latInput.value);
+    const lng = parseFloat(el.lngInput.value);
 
-    if (isNaN(lat) || isNaN(lng)) {
-        alert('Please enter valid latitude and longitude values.');
+    if (isNaN(lat) || isNaN(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        alert('Please enter valid latitude (-90 to 90) and longitude (-180 to 180).');
         return;
     }
 
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
-        alert('Please enter valid coordinates (lat: -90 to 90, lng: -180 to 180).');
-        return;
-    }
-
-    showLoading('advisory');
     clearAllAutocomplete();
+    fetchAdvisory(`/api/advisory?lat=${lat}&lng=${lng}&lang=english`);
+}
 
-    fetch(`/api/advisory?lat=${lat}&lng=${lng}&lang=english`)
-        .then(async response => {
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || `HTTP error! status: ${response.status}`);
-            }
-            return data;
-        })
+async function fetchAdvisory(url) {
+    el.searchBtn.disabled = true;
+    el.searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    try {
+        const resp = await fetch(url);
+        const data = await resp.json();
+        if (!resp.ok || data.error) throw new Error(data.error || 'Advisory request failed');
+
+        AppState.currentAdvisory = data;
+        displayAdvisoryReport(data);
+
+        if (data.location?.latitude && data.location?.longitude) {
+            setAdvisoryMarker(data.location.latitude, data.location.longitude, data.location.name);
+        }
+
+    } catch (e) {
+        alert(`Advisory search error: ${e.message}`);
+    } finally {
+        el.searchBtn.disabled = false;
+        el.searchBtn.innerHTML = '<i class="fas fa-search"></i> Check';
+    }
+}
+
+function displayAdvisoryReport(data) {
+    el.advisoryResults.style.display = 'flex';
+    el.advisoryLocation.textContent = data.location?.name || 'Philippine Location';
+    el.advisoryTimestamp.textContent = `Updated: ${new Date(data.timestamp).toLocaleTimeString()}`;
+
+    const sev = (data.advisory?.overall_severity || 'low').toLowerCase();
+    el.safetyAlertBox.className = `overall-alert-box ${sev}`;
+    el.safetySeverityTitle.textContent = `${sev.toUpperCase()} RISK LEVEL`;
+    el.safetySeverityDesc.textContent = data.advisory?.overall_summary || 'Conditions are stable.';
+
+    // Earthquake Proximity
+    if (data.earthquakes && data.earthquakes.length > 0) {
+        const nearest = data.earthquakes[0];
+        el.earthquakeData.innerHTML = `
+            <strong>M${nearest.magnitude?.toFixed(1) || '?'} Earthquake</strong><br>
+            <span style="color:#64748b;">${escapeHtml(nearest.place || '')} (${nearest.distance_km?.toFixed(0) || '?'} km away)</span>
+        `;
+    } else {
+        el.earthquakeData.innerHTML = '<span style="color:#10b981; font-weight:600;"><i class="fas fa-check"></i> No active earthquakes within 200 km</span>';
+    }
+
+    // Weather Data
+    if (data.weather && !data.weather.error) {
+        const w = data.weather;
+        const rain = w.rain_1h || 0;
+        const isHeavy = rain >= 7.5;
+        el.weatherData.innerHTML = `
+            <strong>${w.temperature?.toFixed(1) || '-'}°C - ${escapeHtml(w.weather?.[0]?.description || '')}</strong><br>
+            <span style="color:${isHeavy ? '#ef4444' : '#64748b'}; font-weight:${isHeavy ? '700' : 'normal'}">
+                Rainfall: ${rain.toFixed(1)} mm/h ${isHeavy ? '(Heavy Rain Warning)' : ''}
+            </span>
+        `;
+    } else {
+        el.weatherData.innerHTML = '<span style="color:#64748b;">Weather data temporarily unavailable</span>';
+    }
+
+    // Specific Advice
+    if (data.advisory?.all_advice && data.advisory.all_advice.length > 0) {
+        el.safetyAdvice.innerHTML = data.advisory.all_advice.map(a => `<div><i class="fas fa-circle-dot" style="font-size:0.65rem; margin-right:6px;"></i> ${escapeHtml(a)}</div>`).join('');
+    } else {
+        el.safetyAdvice.innerHTML = 'No emergency precautions required. Standard safety awareness advised.';
+    }
+}
+
+/* -------------------------------------------------------------
+   System Health Check & Helpers
+------------------------------------------------------------- */
+function checkSystemHealth() {
+    fetch('/api/advisory?lat=14.5995&lng=120.9842&lang=english')
+        .then(r => r.json())
         .then(data => {
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            AppState.currentAdvisory = data;
-            displayAdvisory(data);
-            updateApiStatus('earthquake', data.earthquakes ? 'active' : 'warning');
-            updateApiStatus('weather', data.weather && !data.weather.error ? 'active' : 'warning');
+            updateHealthChip(el.chipUsgs, !!data.earthquakes);
+            updateHealthChip(el.chipWeather, !!data.weather && !data.weather.error);
         })
-        .catch(error => {
-            console.error('Error fetching advisory:', error);
-            showError('advisory', `Failed to get advisory: ${error.message}`);
-        })
-        .finally(() => {
-            hideLoading('advisory');
+        .catch(() => {
+            updateHealthChip(el.chipUsgs, false);
+            updateHealthChip(el.chipWeather, false);
         });
 }
 
-// Display advisory results
-function displayAdvisory(data) {
-    elements.advisoryResults.style.display = 'block';
-
-    elements.advisoryLocation.textContent = data.location.name;
-    const timestamp = new Date(data.timestamp).toLocaleString();
-    elements.advisoryTimestamp.textContent = `Updated: ${timestamp}`;
-
-    displayEarthquakeData(data.earthquakes, data.advisory.earthquake);
-    displayWeatherData(data.weather, data.advisory.weather);
-    displaySafetyAdvice(data.advisory);
-
-    if (data.location.latitude && data.location.longitude) {
-        setAdvisoryLocationMarker(data.location.latitude, data.location.longitude, data.location.name);
-    }
+function updateHealthChip(chipEl, isHealthy) {
+    if (!chipEl) return;
+    chipEl.classList.toggle('error', !isHealthy);
 }
 
-function displayEarthquakeData(earthquakes, earthquakeAdvice) {
-    let html = '';
-
-    if (earthquakes && earthquakes.length > 0) {
-        html += '<div class="hazard-list">';
-        earthquakes.slice(0, 3).forEach(quake => {
-            const magnitude = quake.magnitude?.toFixed(1) || 'Unknown';
-            const distance = quake.distance_km?.toFixed(1) || 'N/A';
-            const place = quake.place || 'Unknown location';
-
-            html += `
-                <div class="hazard-item earthquake">
-                    <strong>Magnitude ${magnitude}</strong>
-                    <div>${place}</div>
-                    <div class="distance">${distance} km away</div>
-                </div>
-            `;
-        });
-
-        if (earthquakes.length > 3) {
-            html += `<div class="more-quakes">+ ${earthquakes.length - 3} more earthquakes</div>`;
-        }
-        html += '</div>';
-    } else {
-        html += '<div class="no-hazards">No significant earthquake activity detected.</div>';
-    }
-
-    if (earthquakeAdvice) {
-        html += `<div class="advice-summary"><strong>${earthquakeAdvice.summary}</strong></div>`;
-    }
-
-    elements.earthquakeData.innerHTML = html;
-}
-
-function displayWeatherData(weather, weatherAdvice) {
-    let html = '';
-
-    if (weather && !weather.error) {
-        html += '<div class="weather-data">';
-
-        if (weather.temperature !== null) {
-            html += `
-                <div class="weather-item">
-                    <span class="weather-label">Temperature:</span>
-                    <span class="weather-value">${weather.temperature?.toFixed(1)}°C</span>
-                </div>
-            `;
-        }
-
-        if (weather.rain_1h > 0) {
-            const rainClass = weather.rain_1h >= 7.5 ? 'rain-heavy' :
-                             weather.rain_1h >= 2.5 ? 'rain-moderate' : 'rain-light';
-            html += `
-                <div class="weather-item">
-                    <span class="weather-label">Rainfall (1h):</span>
-                    <span class="weather-value ${rainClass}">${weather.rain_1h?.toFixed(1)} mm</span>
-                </div>
-            `;
-        }
-
-        if (weather.wind_speed > 0) {
-            html += `
-                <div class="weather-item">
-                    <span class="weather-label">Wind Speed:</span>
-                    <span class="weather-value">${weather.wind_speed?.toFixed(1)} m/s</span>
-                </div>
-            `;
-        }
-
-        if (weather.weather && weather.weather.length > 0) {
-            const condition = weather.weather[0].description;
-            html += `
-                <div class="weather-item">
-                    <span class="weather-label">Conditions:</span>
-                    <span class="weather-value">${condition}</span>
-                </div>
-            `;
-        }
-
-        html += '</div>';
-    } else {
-        html += '<div class="no-weather">Weather data unavailable.</div>';
-    }
-
-    if (weatherAdvice) {
-        html += `<div class="advice-summary"><strong>${weatherAdvice.summary}</strong></div>`;
-    }
-
-    elements.weatherData.innerHTML = html;
-}
-
-function displaySafetyAdvice(advisory) {
-    let html = '';
-
-    html += `<div class="overall-advice ${advisory.overall_severity}">`;
-    html += `<h4>${advisory.overall_summary}</h4>`;
-    html += `<p>Severity: <span class="severity-${advisory.overall_severity}">${advisory.overall_severity.toUpperCase()}</span></p>`;
-    html += '</div>';
-
-    if (advisory.all_advice && advisory.all_advice.length > 0) {
-        html += '<div class="advice-list">';
-        advisory.all_advice.forEach(advice => {
-            html += `<div class="advice-item"><i class="fas fa-exclamation-circle"></i> ${advice}</div>`;
-        });
-        html += '</div>';
-    } else {
-        html += '<div class="no-specific-advice">No specific safety advice needed at this time.</div>';
-    }
-
-    elements.safetyAdvice.innerHTML = html;
-}
-
-// Use current location
 function useCurrentLocation() {
     if (!navigator.geolocation) {
         alert('Geolocation is not supported by your browser.');
         return;
     }
 
-    elements.useCurrentLocationBtn.disabled = true;
-    elements.useCurrentLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Getting location...';
+    el.useCurrentLocationBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
 
     navigator.geolocation.getCurrentPosition(
-        position => {
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-
-            elements.originInput.value = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-            setOriginPoint(lat, lng);
-
-            elements.useCurrentLocationBtn.disabled = false;
-            elements.useCurrentLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Use Current Location';
+        pos => {
+            const lat = pos.coords.latitude;
+            const lng = pos.coords.longitude;
+            setOriginPoint(lat, lng, 'My Location');
+            el.useCurrentLocationBtn.innerHTML = '<i class="fas fa-location-crosshairs"></i>';
         },
-        error => {
-            console.error('Geolocation error:', error);
-            alert('Unable to get your location. Please enter it manually.');
-            elements.useCurrentLocationBtn.disabled = false;
-            elements.useCurrentLocationBtn.innerHTML = '<i class="fas fa-location-arrow"></i> Use Current Location';
+        () => {
+            alert('Could not retrieve GPS location.');
+            el.useCurrentLocationBtn.innerHTML = '<i class="fas fa-location-crosshairs"></i>';
         }
     );
 }
 
-// Resolve location input string to coordinates (supports both "lat, lng" and named places)
-async function resolveLocationToCoords(inputStr) {
-    const parsed = parseCoordinates(inputStr);
-    if (parsed) return parsed;
-
-    try {
-        const resp = await fetch(`/api/geocode?q=${encodeURIComponent(inputStr)}&limit=1`);
-        const data = await resp.json();
-        if (data.results && data.results.length > 0) {
-            return {
-                lat: data.results[0].latitude,
-                lng: data.results[0].longitude
-            };
-        }
-    } catch (e) {
-        console.warn('Failed to resolve coordinates for:', inputStr, e);
-    }
-    return null;
+// Helpers
+function getMagCategory(mag) {
+    if (mag >= 6.0) return 'severe';
+    if (mag >= 5.0) return 'strong';
+    if (mag >= 4.0) return 'moderate';
+    return 'minor';
 }
 
-// Calculate route
-async function calculateRoute() {
-    const originText = elements.originInput.value.trim();
-    const destinationText = elements.destinationInput.value.trim();
-
-    if (!originText || !destinationText) {
-        alert('Please enter both origin and destination.');
-        return;
-    }
-
-    showLoading('route');
-    clearAllAutocomplete();
-
-    // Resolve coordinates for origin and destination
-    const originCoords = await resolveLocationToCoords(originText);
-    const destinationCoords = await resolveLocationToCoords(destinationText);
-
-    if (!originCoords || !destinationCoords) {
-        hideLoading('route');
-        alert('Unable to resolve coordinates for the origin or destination. Please provide valid location names or coordinates (lat, lng).');
-        return;
-    }
-
-    setOriginPoint(originCoords.lat, originCoords.lng);
-    setDestinationPoint(destinationCoords.lat, destinationCoords.lng);
-    clearRoutes();
-
-    const routeRequest = {
-        origin: originCoords,
-        destination: destinationCoords,
-        lang: 'english'
-    };
-
-    fetch('/api/route', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(routeRequest)
-    })
-    .then(async response => {
-        const data = await response.json().catch(() => ({}));
-        if (!response.ok) {
-            throw new Error(data.error || `HTTP error! status: ${response.status}`);
-        }
-        return data;
-    })
-    .then(data => {
-        if (data.error) {
-            throw new Error(data.error);
-        }
-
-        AppState.currentRoute = data;
-        displayRouteResults(data);
-        drawRouteOnMap(data);
-        updateApiStatus('routing', 'active');
-    })
-    .catch(error => {
-        console.error('Error calculating route:', error);
-        showError('route', `Failed to calculate route: ${error.message}`);
-        updateApiStatus('routing', 'error');
-
-        drawPlaceholderRoute(originCoords, destinationCoords);
-        updateRouteInfo({
-            distance_km: null,
-            duration_min: null,
-            hazards: [],
-            advice: `Route calculation failed: ${error.message}`
-        });
-    })
-    .finally(() => {
-        hideLoading('route');
-    });
+function getMagColor(mag) {
+    if (mag >= 6.0) return '#ef4444';
+    if (mag >= 5.0) return '#f97316';
+    if (mag >= 4.0) return '#eab308';
+    return '#10b981';
 }
 
-function parseCoordinates(input) {
-    const parts = input.split(',').map(part => part.trim());
-    if (parts.length !== 2) return null;
-
-    const lat = parseFloat(parts[0]);
-    const lng = parseFloat(parts[1]);
-
-    if (isNaN(lat) || isNaN(lng)) return null;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-
-    return { lat, lng };
+function formatTimeAgo(timestamp) {
+    if (!timestamp) return '';
+    const diffMs = Date.now() - timestamp;
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.floor(hrs / 24)}d ago`;
 }
 
-function drawPlaceholderRoute(origin, destination) {
-    const linePoints = [
-        [origin.lat, origin.lng],
-        [destination.lat, destination.lng]
-    ];
-
-    AppState.mapLayers.originRoute = L.polyline(linePoints, {
-        color: '#666',
-        weight: 4,
-        opacity: 0.7,
-        dashArray: '10, 10'
-    }).addTo(AppState.map);
-
-    AppState.map.fitBounds([linePoints[0], linePoints[1]], { padding: [50, 50] });
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
-
-function updateRouteInfo(routeData) {
-    if (!routeData) {
-        elements.routeInfo.querySelector('.info-content').innerHTML = 'No route calculated yet.';
-        return;
-    }
-
-    let html = '';
-
-    if (routeData.distance_km !== undefined && routeData.distance_km !== null && routeData.distance_km !== 'N/A') {
-        const distNum = parseFloat(routeData.distance_km);
-        const distDisplay = isNaN(distNum) ? routeData.distance_km : `${distNum.toFixed(1)} km`;
-        html += `<div class="route-info-item">
-            <span class="route-info-label">Distance:</span>
-            <span class="route-info-value">${distDisplay}</span>
-        </div>`;
-    }
-
-    if (routeData.duration_min !== undefined && routeData.duration_min !== null && routeData.duration_min !== 'N/A') {
-        const mins = parseFloat(routeData.duration_min);
-        let timeDisplay = '';
-        if (!isNaN(mins)) {
-            if (mins >= 60) {
-                const hrs = Math.floor(mins / 60);
-                const remMins = Math.round(mins % 60);
-                timeDisplay = remMins > 0 ? `${hrs} ${hrs === 1 ? 'hr' : 'hrs'} ${remMins} ${remMins === 1 ? 'min' : 'mins'}` : `${hrs} ${hrs === 1 ? 'hr' : 'hrs'}`;
-            } else if (mins < 1) {
-                timeDisplay = '< 1 min';
-            } else {
-                const roundedMins = Math.round(mins);
-                timeDisplay = `${roundedMins} ${roundedMins === 1 ? 'min' : 'mins'}`;
-            }
-        } else {
-            timeDisplay = `${routeData.duration_min}`;
-        }
-        html += `<div class="route-info-item">
-            <span class="route-info-label">Estimated Time:</span>
-            <span class="route-info-value">${timeDisplay}</span>
-        </div>`;
-    }
-
-    const hazardCount = routeData.hazardCount !== undefined ? routeData.hazardCount : (routeData.hazards ? routeData.hazards.length : 0);
-    if (hazardCount > 0) {
-        html += `<div class="route-info-item">
-            <span class="route-info-label">Hazards:</span>
-            <span class="route-info-value">${hazardCount} detected</span>
-        </div>`;
-    }
-
-    if (routeData.advice) {
-        html += `<div class="route-info-item">
-            <span class="route-info-label">Advice:</span>
-            <span class="route-info-value">${routeData.advice}</span>
-        </div>`;
-    }
-
-    elements.routeInfo.querySelector('.info-content').innerHTML = html || 'No route information available.';
-}
-
-function displayRouteResults(routeData) {
-    AppState.currentRoute = routeData;
-
-    let hazardList = [];
-    let hazardCount = 0;
-    if (routeData.hazards) {
-        if (Array.isArray(routeData.hazards)) {
-            hazardList = routeData.hazards;
-            hazardCount = hazardList.length;
-        } else {
-            const quakes = routeData.hazards.earthquakes || [];
-            const floods = routeData.hazards.floods || [];
-            hazardList = [...quakes, ...floods];
-            hazardCount = routeData.hazards.total_count !== undefined ? routeData.hazards.total_count : hazardList.length;
-        }
-    }
-
-    const activeRoute = routeData.adjusted_route || routeData.base_route;
-
-    const info = {
-        distance_km: activeRoute?.distance_km,
-        duration_min: activeRoute?.duration_min,
-        hazards: hazardList,
-        hazardCount: hazardCount,
-        advice: routeData.advice?.summary || (typeof routeData.advice === 'string' ? routeData.advice : 'No advice available')
-    };
-
-    updateRouteInfo(info);
-}
-
-function drawRouteOnMap(routeData) {
-    if (AppState.mapLayers.originRoute) {
-        AppState.map.removeLayer(AppState.mapLayers.originRoute);
-        AppState.mapLayers.originRoute = null;
-    }
-    if (AppState.mapLayers.safeRoute) {
-        AppState.map.removeLayer(AppState.mapLayers.safeRoute);
-        AppState.mapLayers.safeRoute = null;
-    }
-
-    // Draw base route
-    if (routeData.base_route && routeData.base_route.coordinates && routeData.base_route.coordinates.length > 0) {
-        const routePoints = routeData.base_route.coordinates.map(coord => [coord[1], coord[0]]);
-
-        AppState.mapLayers.originRoute = L.polyline(routePoints, {
-            color: '#1e88e5',
-            weight: 5,
-            opacity: 0.8
-        }).addTo(AppState.map);
-    }
-
-    // Draw safe / adjusted route
-    if (routeData.adjusted_route && routeData.adjusted_route.coordinates && routeData.adjusted_route.coordinates.length > 0) {
-        const adjustedPoints = routeData.adjusted_route.coordinates.map(coord => [coord[1], coord[0]]);
-
-        AppState.mapLayers.safeRoute = L.polyline(adjustedPoints, {
-            color: '#4caf50',
-            weight: 5,
-            opacity: 0.8,
-            dashArray: '10, 5'
-        }).addTo(AppState.map);
-    }
-
-    // Draw hazard zones
-    if (routeData.hazard_zones && routeData.hazard_zones.length > 0) {
-        routeData.hazard_zones.forEach(zone => {
-            if (zone.geojson && zone.geojson.features) {
-                zone.geojson.features.forEach(feature => {
-                    if (feature.geometry && feature.geometry.coordinates) {
-                        const polygon = L.geoJSON(feature, {
-                            style: {
-                                color: '#ff5252',
-                                weight: 2,
-                                opacity: 0.6,
-                                fillColor: '#ff5252',
-                                fillOpacity: 0.25
-                            }
-                        }).addTo(AppState.map);
-
-                        AppState.mapLayers.hazardZones = polygon;
-                    }
-                });
-            }
-        });
-    }
-
-    // Fit map bounds
-    if (routeData.base_route && routeData.base_route.coordinates && routeData.base_route.coordinates.length > 0) {
-        const routePoints = routeData.base_route.coordinates.map(coord => [coord[1], coord[0]]);
-        const bounds = L.latLngBounds(routePoints);
-        AppState.map.fitBounds(bounds, { padding: [50, 50] });
-    }
-}
-
-// API status checking
-function checkApiStatus() {
-    fetch('/api/advisory?lat=14.5995&lng=120.9842&lang=english')
-        .then(response => {
-            if (response.ok) return response.json();
-            throw new Error('Advisory service check response not ok');
-        })
-        .then(data => {
-            updateApiStatus('earthquake', data.earthquakes !== undefined ? 'active' : 'warning');
-            updateApiStatus('weather', data.weather && !data.weather.error ? 'active' : 'warning');
-        })
-        .catch(err => {
-            console.error('API check error:', err);
-            updateApiStatus('earthquake', 'error');
-            updateApiStatus('weather', 'error');
-        });
-
-    fetch('/api/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            origin: { lat: 14.5995, lng: 120.9842 },
-            destination: { lat: 14.5547, lng: 121.0244 },
-            lang: 'english'
-        })
-    })
-    .then(response => {
-        updateApiStatus('routing', response.ok ? 'active' : 'warning');
-    })
-    .catch(() => {
-        updateApiStatus('routing', 'error');
-    });
-}
-
-function updateApiStatus(api, status) {
-    const element = elements[`${api}Status`];
-    if (!element) return;
-
-    element.className = 'status-indicator';
-    element.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-
-    switch (status) {
-        case 'active':
-            element.classList.add('active');
-            break;
-        case 'warning':
-            element.classList.add('warning');
-            break;
-        case 'error':
-            element.classList.add('error');
-            break;
-        case 'pending':
-            element.classList.add('pending');
-            break;
-    }
-}
-
-function showLoading(context) {
-    console.log(`Loading ${context}...`);
-}
-
-function hideLoading(context) {
-    console.log(`Finished loading ${context}`);
-}
-
-function showError(context, message) {
-    alert(`Error (${context}): ${message}`);
-}
-
-// Initialize on DOM ready
-document.addEventListener('DOMContentLoaded', init);

@@ -33,7 +33,10 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 def fetch_recent_earthquakes(
     lat: Optional[float] = None,
     lon: Optional[float] = None,
-    radius_km: float = 200.0
+    radius_km: float = 200.0,
+    time_window_hours: Optional[int] = None,
+    scope: str = 'ph',
+    min_magnitude: float = 2.0
 ) -> List[Dict[str, Any]]:
     """
     Fetch recent earthquakes from USGS API.
@@ -42,22 +45,27 @@ def fetch_recent_earthquakes(
         lat: Latitude of reference point (optional)
         lon: Longitude of reference point (optional)
         radius_km: Search radius in kilometers (default: 200km)
+        time_window_hours: Hours to look back (default from config, e.g. 24, 168 for 7d, 720 for 30d)
+        scope: 'ph' for Philippine bounding box or 'global' for worldwide/Ring of Fire
+        min_magnitude: Minimum magnitude filter
 
     Returns:
         List of earthquake data dictionaries
     """
     try:
         # Calculate time window
+        hours = time_window_hours or Config.EARTHQUAKE_TIME_WINDOW_HOURS
         end_time = datetime.now(timezone.utc)
-        start_time = end_time - timedelta(hours=Config.EARTHQUAKE_TIME_WINDOW_HOURS)
+        start_time = end_time - timedelta(hours=hours)
 
         # Build USGS API query parameters
         params = {
             'format': 'geojson',
             'starttime': start_time.strftime('%Y-%m-%dT%H:%M:%S'),
             'endtime': end_time.strftime('%Y-%m-%dT%H:%M:%S'),
-            'minmagnitude': 2.0,  # Get all earthquakes, filter later
-            'orderby': 'time'
+            'minmagnitude': min_magnitude,
+            'orderby': 'time',
+            'limit': 200
         }
 
         # If lat/lon provided, use circular search
@@ -67,7 +75,7 @@ def fetch_recent_earthquakes(
                 'longitude': lon,
                 'maxradiuskm': radius_km
             })
-        else:
+        elif scope == 'ph':
             # Otherwise, use Philippines bounding box
             params.update({
                 'minlatitude': Config.PH_BBOX['minlatitude'],
@@ -75,6 +83,7 @@ def fetch_recent_earthquakes(
                 'minlongitude': Config.PH_BBOX['minlongitude'],
                 'maxlongitude': Config.PH_BBOX['maxlongitude']
             })
+        # If scope == 'global', no bounding box is applied
 
         logger.info(f"Fetching earthquakes with params: {params}")
 

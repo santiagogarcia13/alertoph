@@ -99,6 +99,93 @@ def geocode():
         }), 500
 
 
+@app.route('/api/earthquakes', methods=['GET'])
+def get_earthquakes():
+    """Get recent earthquakes with support for Philippine and Global scopes and custom timeframes."""
+    try:
+        min_mag = request.args.get('min_mag', default=2.0, type=float)
+        scope = request.args.get('scope', default='ph', type=str)
+        days = request.args.get('days', default=None, type=int)
+        hours = request.args.get('hours', default=None, type=int)
+
+        if days is not None:
+            time_window_hours = days * 24
+        elif hours is not None:
+            time_window_hours = hours
+        else:
+            time_window_hours = Config.EARTHQUAKE_TIME_WINDOW_HOURS
+
+        # For global scope, default to M4.5+ if min_mag is left at 2.0 to prevent payload overload
+        effective_min_mag = min_mag
+        if scope == 'global' and min_mag <= 2.0:
+            effective_min_mag = 4.5
+
+        earthquakes = fetch_recent_earthquakes(
+            lat=None,
+            lon=None,
+            radius_km=None,
+            time_window_hours=time_window_hours,
+            scope=scope,
+            min_magnitude=effective_min_mag
+        )
+
+        if min_mag > 2.0 and scope == 'ph':
+            earthquakes = [q for q in earthquakes if q.get('magnitude', 0) >= min_mag]
+
+        return jsonify({
+            'count': len(earthquakes),
+            'scope': scope,
+            'time_window_hours': time_window_hours,
+            'earthquakes': earthquakes,
+            'timestamp': datetime.now(timezone.utc).isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error fetching earthquakes: {e}")
+        return jsonify({'error': 'Failed to fetch earthquake data', 'earthquakes': [], 'count': 0}), 500
+
+
+@app.route('/api/weather/regional', methods=['GET'])
+def get_regional_weather():
+    """Get current weather across major Philippine regions for map display."""
+    key_locations = [
+        {'name': 'Manila', 'lat': 14.5995, 'lng': 120.9842},
+        {'name': 'Baguio', 'lat': 16.4023, 'lng': 120.5960},
+        {'name': 'Cebu City', 'lat': 10.3157, 'lng': 123.8854},
+        {'name': 'Davao City', 'lat': 7.1907, 'lng': 125.4553},
+        {'name': 'Cagayan de Oro', 'lat': 8.4542, 'lng': 124.6319},
+        {'name': 'Iloilo City', 'lat': 10.7202, 'lng': 122.5621},
+        {'name': 'Naga City', 'lat': 13.6218, 'lng': 123.1948},
+        {'name': 'Tacloban', 'lat': 11.2444, 'lng': 125.0039},
+        {'name': 'Zamboanga', 'lat': 6.9214, 'lng': 122.0790},
+        {'name': 'Puerto Princesa', 'lat': 9.7392, 'lng': 118.7353}
+    ]
+    results = []
+    for loc in key_locations:
+        try:
+            w = fetch_current_weather(loc['lat'], loc['lng'])
+            if w and not w.get('error'):
+                results.append({
+                    'name': loc['name'],
+                    'lat': loc['lat'],
+                    'lng': loc['lng'],
+                    'temperature': w.get('temperature'),
+                    'rain_1h': w.get('rain_1h', 0),
+                    'humidity': w.get('humidity'),
+                    'wind_speed': w.get('wind_speed'),
+                    'condition': w.get('weather', [{}])[0].get('description', 'Clear'),
+                    'icon': w.get('weather', [{}])[0].get('icon', '01d'),
+                    'is_heavy_rain': w.get('rain_1h', 0) >= Config.HEAVY_RAINFALL_THRESHOLD
+                })
+        except Exception as e:
+            logger.warning(f"Failed to fetch weather for {loc['name']}: {e}")
+
+    return jsonify({
+        'count': len(results),
+        'stations': results,
+        'timestamp': datetime.now(timezone.utc).isoformat()
+    })
+
+
 @app.route('/api/advisory', methods=['GET'])
 def advisory():
     """Get earthquake and weather advisory for a location."""

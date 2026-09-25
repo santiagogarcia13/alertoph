@@ -2,168 +2,336 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AlertoPH - Hazard-Aware Route Advisory System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AlertoPH - Philippine Hazard & Route Advisory System</title>
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
-<body>
-    <div class="container">
-        <header class="header">
-            <div class="logo">
-                <h1><i class="fas fa-exclamation-triangle"></i> AlertoPH</h1>
-                <p class="tagline">Earthquake, Weather & Hazard-Aware Route Advisory for the Philippines</p>
+<body class="usgs-theme">
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+        <div class="nav-brand">
+            <div class="brand-icon"><i class="fas fa-shield-halved"></i></div>
+            <div class="brand-text">
+                <span class="brand-title">AlertoPH</span>
+                <span class="brand-subtitle">Hazard & Safe Route Advisory</span>
             </div>
-        </header>
+        </div>
 
-        <main class="main-content">
-            <section class="location-search">
-                <h2><i class="fas fa-search-location"></i> Location Advisory</h2>
-                <div class="search-form">
-                    <div class="input-group">
-                        <input type="text" id="location-input" placeholder="Enter any Philippine city, barangay, landmark, or street (e.g., BGC, Intramuros, Baguio, Cebu)">
-                        <button id="search-btn" class="btn btn-primary">
-                            <i class="fas fa-search"></i> Get Advisory
-                        </button>
+        <!-- Mode Navigation Tabs -->
+        <nav class="nav-tabs" id="nav-tabs" role="tablist">
+            <button class="tab-btn active" data-tab="route" role="tab" aria-selected="true">
+                <i class="fas fa-route"></i>
+                <span>Safe Routing</span>
+            </button>
+            <button class="tab-btn" data-tab="earthquake" role="tab" aria-selected="false">
+                <i class="fas fa-bolt"></i>
+                <span>Earthquakes</span>
+                <span class="badge" id="quake-badge">-</span>
+            </button>
+            <button class="tab-btn" data-tab="weather" role="tab" aria-selected="false">
+                <i class="fas fa-cloud-showers-heavy"></i>
+                <span>Weather & Rain</span>
+            </button>
+            <button class="tab-btn" data-tab="advisory" role="tab" aria-selected="false">
+                <i class="fas fa-search-location"></i>
+                <span>Location Advisory</span>
+            </button>
+        </nav>
+
+        <!-- System Health Chips -->
+        <div class="nav-status">
+            <div class="status-chip" id="chip-usgs" title="USGS Earthquake API">
+                <span class="status-dot"></span>
+                <span class="chip-label">USGS</span>
+            </div>
+            <div class="status-chip" id="chip-weather" title="OpenWeather API">
+                <span class="status-dot"></span>
+                <span class="chip-label">Weather</span>
+            </div>
+            <div class="status-chip" id="chip-routing" title="OpenRouteService API">
+                <span class="status-dot"></span>
+                <span class="chip-label">Routing</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main App Layout (Split Sidebar + Map) -->
+    <div class="app-layout">
+
+        <!-- Left Sidebar / Control Panel -->
+        <aside class="sidebar" id="sidebar">
+
+            <!-- TAB 1: SAFE ROUTING -->
+            <section class="tab-panel active" id="panel-route">
+                <div class="panel-header">
+                    <h2><i class="fas fa-route text-primary"></i> Hazard-Aware Routing</h2>
+                    <p class="panel-desc">Calculates direct routes and automatically diverts around active flood and earthquake zones.</p>
+                </div>
+
+                <div class="route-inputs-card">
+                    <div class="input-field">
+                        <label for="origin-input"><i class="fas fa-circle-dot origin-icon"></i> Origin</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="origin-input" placeholder="Enter landmark, barangay, or city (e.g. Manila)" autocomplete="off">
+                            <button class="input-action-btn" id="use-current-location" title="Use current GPS location">
+                                <i class="fas fa-location-crosshairs"></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="input-group">
-                        <label>Or use coordinates:</label>
-                        <div class="coordinate-inputs">
+
+                    <div class="input-field">
+                        <label for="destination-input"><i class="fas fa-flag-checkered destination-icon"></i> Destination</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="destination-input" placeholder="Enter landmark, barangay, or city (e.g. BGC)" autocomplete="off">
+                        </div>
+                    </div>
+
+                    <div class="map-pick-row">
+                        <span class="pick-label">Or pick on map:</span>
+                        <div class="pick-btn-group">
+                            <button id="pick-origin" class="btn btn-sm btn-ghost"><i class="fas fa-map-pin text-primary"></i> Origin</button>
+                            <button id="pick-destination" class="btn btn-sm btn-ghost"><i class="fas fa-flag text-warning"></i> Destination</button>
+                            <button id="clear-points" class="btn btn-sm btn-ghost text-muted"><i class="fas fa-trash-can"></i> Clear</button>
+                        </div>
+                    </div>
+
+                    <button id="calculate-route-btn" class="btn btn-primary btn-block">
+                        <i class="fas fa-shield"></i> Calculate Safe Route
+                    </button>
+                </div>
+
+                <!-- Route Summary Card (Hidden initially) -->
+                <div class="route-summary-card" id="route-summary-card" style="display: none;">
+                    <div class="summary-header">
+                        <h3 id="route-status-title">Safe Route Calculated</h3>
+                        <span class="safety-badge" id="route-safety-badge">SAFE</span>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-box">
+                            <span class="metric-label">Distance</span>
+                            <span class="metric-val" id="route-dist">-</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-label">Duration</span>
+                            <span class="metric-val" id="route-time">-</span>
+                        </div>
+                        <div class="metric-box">
+                            <span class="metric-label">Hazards Avoided</span>
+                            <span class="metric-val text-danger" id="route-hazards-count">0</span>
+                        </div>
+                    </div>
+
+                    <div class="route-advice-box" id="route-advice-box">
+                        <i class="fas fa-circle-info"></i>
+                        <span id="route-advice-text">Route is clear of significant natural hazards.</span>
+                    </div>
+                </div>
+            </section>
+
+
+            <!-- TAB 2: EARTHQUAKES (USGS FEED) -->
+            <section class="tab-panel" id="panel-earthquake">
+                <div class="panel-header">
+                    <div class="panel-title-row">
+                        <h2><i class="fas fa-bolt text-warning"></i> Recent Earthquakes</h2>
+                        <button class="btn btn-sm btn-ghost" id="refresh-quakes-btn" title="Refresh Feed"><i class="fas fa-rotate"></i></button>
+                    </div>
+                    <p class="panel-desc">Real-time seismic activity in the Philippine region from USGS (past 24 hours).</p>
+                </div>
+
+                <!-- Filter Row -->
+                <div class="filter-pills">
+                    <button class="filter-pill active" data-min-mag="2.0">All (M2.0+)</button>
+                    <button class="filter-pill" data-min-mag="4.0">M4.0+ Notable</button>
+                    <button class="filter-pill" data-min-mag="5.0">M5.0+ Strong</button>
+                </div>
+
+                <!-- Earthquake List Feed -->
+                <div class="earthquake-feed" id="earthquake-feed">
+                    <div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading USGS earthquake feed...</div>
+                </div>
+            </section>
+
+
+            <!-- TAB 3: WEATHER & RAIN -->
+            <section class="tab-panel" id="panel-weather">
+                <div class="panel-header">
+                    <div class="panel-title-row">
+                        <h2><i class="fas fa-cloud-showers-heavy text-info"></i> Weather & Rain Radar</h2>
+                        <button class="btn btn-sm btn-ghost" id="refresh-weather-btn" title="Refresh Weather"><i class="fas fa-rotate"></i></button>
+                    </div>
+                    <p class="panel-desc">Live weather stations across the Philippines with heavy rainfall & flood warnings (&ge; 7.5 mm/hr PAGASA threshold).</p>
+                </div>
+
+                <!-- Rain Gauge Level Guide -->
+                <div class="rain-scale-guide">
+                    <div class="scale-item"><span class="scale-dot light"></span> Light (&lt; 2.5 mm/h)</div>
+                    <div class="scale-item"><span class="scale-dot moderate"></span> Moderate (2.5 - 7.4)</div>
+                    <div class="scale-item"><span class="scale-dot heavy"></span> Heavy / Flood (&ge; 7.5)</div>
+                </div>
+
+                <!-- Regional Weather Station List -->
+                <div class="weather-station-list" id="weather-station-list">
+                    <div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Fetching Philippine weather stations...</div>
+                </div>
+            </section>
+
+
+            <!-- TAB 4: LOCATION ADVISORY -->
+            <section class="tab-panel" id="panel-advisory">
+                <div class="panel-header">
+                    <h2><i class="fas fa-search-location text-safe"></i> Location Advisory</h2>
+                    <p class="panel-desc">Search any Philippine landmark, barangay, or street for a complete disaster & safety report.</p>
+                </div>
+
+                <div class="search-form-card">
+                    <div class="input-field">
+                        <label for="location-input">Search Location</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="location-input" placeholder="e.g. Intramuros, BGC, Baguio, Cebu, Mayon" autocomplete="off">
+                            <button class="btn btn-primary" id="search-btn"><i class="fas fa-search"></i> Check</button>
+                        </div>
+                    </div>
+
+                    <div class="coord-toggle-row">
+                        <button class="btn-text" id="toggle-coord-btn"><i class="fas fa-sliders"></i> Enter Coordinates / Pick Map</button>
+                    </div>
+
+                    <div class="coord-inputs-drawer" id="coord-inputs-drawer" style="display: none;">
+                        <div class="coord-grid">
                             <input type="number" id="lat-input" placeholder="Latitude" step="any">
                             <input type="number" id="lng-input" placeholder="Longitude" step="any">
-                            <button id="coord-search-btn" class="btn btn-secondary">
-                                <i class="fas fa-crosshairs"></i> Use Coordinates
-                            </button>
-                            <button id="pick-advisory-location" class="btn btn-secondary">
-                                <i class="fas fa-map-marker-alt"></i> Pick on Map
-                            </button>
                         </div>
+                        <div class="coord-btn-row">
+                            <button id="coord-search-btn" class="btn btn-sm btn-secondary"><i class="fas fa-crosshairs"></i> Search Coords</button>
+                            <button id="pick-advisory-location" class="btn btn-sm btn-ghost"><i class="fas fa-map-pin"></i> Pick on Map</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Advisory Results Card -->
+                <div class="advisory-result-card" id="advisory-results" style="display: none;">
+                    <div class="card-top">
+                        <h3 id="advisory-location">-</h3>
+                        <span class="timestamp" id="advisory-timestamp">-</span>
+                    </div>
+
+                    <!-- Safety Summary Alert Banner -->
+                    <div class="overall-alert-box" id="safety-alert-box">
+                        <div class="alert-icon"><i class="fas fa-circle-check"></i></div>
+                        <div class="alert-text">
+                            <h4 id="safety-severity-title">LOW RISK</h4>
+                            <p id="safety-severity-desc">Conditions are favorable.</p>
+                        </div>
+                    </div>
+
+                    <!-- Dual Metrics Section -->
+                    <div class="advisory-details-grid">
+                        <div class="detail-card">
+                            <div class="detail-card-head"><i class="fas fa-bolt text-warning"></i> Earthquake Proximity</div>
+                            <div id="earthquake-data" class="detail-content">-</div>
+                        </div>
+                        <div class="detail-card">
+                            <div class="detail-card-head"><i class="fas fa-cloud-sun-rain text-info"></i> Current Weather</div>
+                            <div id="weather-data" class="detail-content">-</div>
+                        </div>
+                    </div>
+
+                    <!-- Specific Actionable Advice -->
+                    <div class="advice-container">
+                        <h4><i class="fas fa-list-check"></i> Safety Recommendations</h4>
+                        <div id="safety-advice" class="advice-items">-</div>
                     </div>
                 </div>
             </section>
 
-            <section class="advisory-results" id="advisory-results" style="display: none;">
-                <h2><i class="fas fa-shield-alt"></i> Safety Advisory</h2>
-                <div class="card">
-                    <div class="card-header">
-                        <h3 id="advisory-location">Location</h3>
-                        <div class="timestamp" id="advisory-timestamp"></div>
-                    </div>
-                    <div class="card-body">
-                        <div class="hazard-sections">
-                            <div class="hazard-section">
-                                <h4><i class="fas fa-mountain"></i> Earthquake Activity</h4>
-                                <div class="hazard-content" id="earthquake-data">
-                                    <div class="loading">Loading earthquake data...</div>
-                                </div>
-                            </div>
-                            <div class="hazard-section">
-                                <h4><i class="fas fa-cloud-rain"></i> Weather Conditions</h4>
-                                <div class="hazard-content" id="weather-data">
-                                    <div class="loading">Loading weather data...</div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="safety-advice">
-                            <h4><i class="fas fa-exclamation-circle"></i> Safety Recommendations</h4>
-                            <div class="advice-content" id="safety-advice">
-                                <div class="loading">Generating safety recommendations...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
+        </aside>
 
-            <section class="route-planning">
-                <h2><i class="fas fa-route"></i> Hazard-Aware Route Planning</h2>
-                <div class="route-form">
-                    <div class="input-group">
-                        <label for="origin-input">Origin:</label>
-                        <input type="text" id="origin-input" placeholder="Start location (e.g., Manila, Quezon City, lat,lng)">
-                        <button id="use-current-location" class="btn btn-secondary">
-                            <i class="fas fa-location-arrow"></i> Use Current Location
-                        </button>
-                    </div>
-                    <div class="input-group">
-                        <label for="destination-input">Destination:</label>
-                        <input type="text" id="destination-input" placeholder="Destination (e.g., Taguig, BGC, Makati, lat,lng)">
-                    </div>
-                    <div class="input-group">
-                        <label>Or pick points on map:</label>
-                        <div class="map-pick-buttons">
-                            <button id="pick-origin" class="btn btn-secondary">
-                                <i class="fas fa-map-marker-alt"></i> Pick Origin
-                            </button>
-                            <button id="pick-destination" class="btn btn-secondary">
-                                <i class="fas fa-flag-checkered"></i> Pick Destination
-                            </button>
-                            <button id="clear-points" class="btn btn-secondary">
-                                <i class="fas fa-trash-alt"></i> Clear Points
-                            </button>
-                        </div>
-                    </div>
-                    <div class="form-actions">
-                        <button id="calculate-route-btn" class="btn btn-primary">
-                            <i class="fas fa-calculator"></i> Calculate Safe Route
-                        </button>
-                    </div>
-                </div>
-            </section>
 
-            <section class="map-section">
-                <h2><i class="fas fa-map"></i> Route Map</h2>
-                <div class="map-container">
-                    <div id="map"></div>
-                    <div class="map-controls">
-                        <div class="map-legend">
-                            <h4>Legend:</h4>
-                            <ul>
-                                <li><span class="legend-marker original"></span> Original Route</li>
-                                <li><span class="legend-marker safe"></span> Safe Route</li>
-                                <li><span class="legend-marker hazard"></span> Hazard Zone</li>
-                                <li><span class="legend-marker origin"></span> Origin</li>
-                                <li><span class="legend-marker destination"></span> Destination</li>
-                            </ul>
-                        </div>
-                        <div class="map-info" id="route-info">
-                            <h4>Route Information:</h4>
-                            <div class="info-content">No route calculated yet.</div>
-                        </div>
-                    </div>
+        <!-- Right Main Map Section -->
+        <main class="map-view-container">
+            <!-- Map Toolbar (Overlay) -->
+            <div class="map-top-bar">
+                <div class="map-mode-indicator" id="map-mode-indicator">
+                    <i class="fas fa-route"></i> <span>Safe Route View</span>
                 </div>
-            </section>
+                <div class="map-actions">
+                    <button class="map-tool-btn" id="map-recenter-btn" title="Reset Philippines View">
+                        <i class="fas fa-compress"></i> <span>Center PH</span>
+                    </button>
+                    <button class="map-tool-btn" id="map-legend-toggle" title="Toggle Legend">
+                        <i class="fas fa-layer-group"></i> <span>Legend</span>
+                    </button>
+                </div>
+            </div>
 
-            <section class="api-status">
-                <h2><i class="fas fa-plug"></i> System Status</h2>
-                <div class="status-grid">
-                    <div class="status-item">
-                        <span class="status-icon pending"><i class="fas fa-mountain"></i></span>
-                        <span class="status-label">Earthquake API</span>
-                        <span class="status-indicator pending" id="earthquake-status">Pending</span>
+            <!-- Leaflet Interactive Map -->
+            <div id="map"></div>
+
+            <!-- Interactive Map Legend (Color Coded with Proper Safety Scale) -->
+            <div class="map-legend-card" id="map-legend-card">
+                <div class="legend-header">
+                    <h4><i class="fas fa-palette"></i> Safety & Map Legend</h4>
+                    <button class="legend-close-btn" id="legend-close-btn">&times;</button>
+                </div>
+                <div class="legend-section">
+                    <div class="legend-section-title">Routing Safety</div>
+                    <div class="legend-item">
+                        <span class="legend-line safe-route"></span>
+                        <span class="legend-text"><strong>Safe / Adjusted Route</strong> (Hazard-free detour)</span>
                     </div>
-                    <div class="status-item">
-                        <span class="status-icon pending"><i class="fas fa-cloud-rain"></i></span>
-                        <span class="status-label">Weather API</span>
-                        <span class="status-indicator pending" id="weather-status">Pending</span>
+                    <div class="legend-item">
+                        <span class="legend-line base-route"></span>
+                        <span class="legend-text"><strong>Direct / Base Route</strong></span>
                     </div>
-                    <div class="status-item">
-                        <span class="status-icon pending"><i class="fas fa-route"></i></span>
-                        <span class="status-label">Routing API</span>
-                        <span class="status-indicator pending" id="routing-status">Pending</span>
+                    <div class="legend-item">
+                        <span class="legend-poly flood-zone"></span>
+                        <span class="legend-text"><strong>Flood / Heavy Rain Zone</strong> (&ge; 7.5 mm/h)</span>
                     </div>
                 </div>
-            </section>
+
+                <div class="legend-section">
+                    <div class="legend-section-title">USGS Earthquake Magnitude</div>
+                    <div class="legend-item">
+                        <span class="legend-dot quake-minor"></span>
+                        <span class="legend-text"><strong>M &lt; 4.0</strong> (Minor / Low risk)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot quake-moderate"></span>
+                        <span class="legend-text"><strong>M 4.0 - 4.9</strong> (Moderate)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot quake-strong"></span>
+                        <span class="legend-text"><strong>M 5.0 - 5.9</strong> (Strong / Caution)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot quake-severe"></span>
+                        <span class="legend-text"><strong>M &ge; 6.0</strong> (Severe / Dangerous)</span>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-section-title">Waypoints</div>
+                    <div class="legend-item">
+                        <span class="legend-icon origin-pin"><i class="fas fa-map-marker-alt"></i></span>
+                        <span class="legend-text">Origin</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-icon dest-pin"><i class="fas fa-flag-checkered"></i></span>
+                        <span class="legend-text">Destination</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mobile Quick Toggle Button (Switch between Map & Controls) -->
+            <button class="mobile-toggle-btn" id="mobile-toggle-btn">
+                <i class="fas fa-sliders"></i> <span id="mobile-toggle-label">Edit Route / Details</span>
+            </button>
         </main>
-
-        <footer class="footer">
-            <p>AlertoPH © 2023 | Real-time hazard awareness for safer travel in the Philippines</p>
-            <p class="disclaimer">
-                <i class="fas fa-info-circle"></i>
-                This system provides advisory information only. Always follow official warnings and use caution.
-            </p>
-        </footer>
     </div>
 
     <!-- Leaflet JS -->

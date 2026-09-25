@@ -190,6 +190,36 @@ class TestAppEndpoints:
         assert data['count'] >= 1
         assert any('BGC' in r['name'] or 'Bonifacio' in r['name'] for r in data['results'])
 
+    def test_earthquakes_endpoint(self, client):
+        """Test GET /api/earthquakes endpoint with min_mag filtering."""
+        mock_quakes = [
+            {'latitude': 14.2, 'longitude': 120.8, 'magnitude': 4.5, 'place': 'Batangas'},
+            {'latitude': 7.1, 'longitude': 125.4, 'magnitude': 2.3, 'place': 'Davao'}
+        ]
+        with patch('app.fetch_recent_earthquakes', return_value=mock_quakes):
+            response = client.get('/api/earthquakes?min_mag=4.0')
+            assert response.status_code == 200
+            data = response.get_json()
+            assert data['count'] == 1
+            assert data['earthquakes'][0]['magnitude'] == 4.5
+
+    def test_regional_weather_endpoint(self, client):
+        """Test GET /api/weather/regional endpoint."""
+        mock_weather = {
+            'temperature': 30.0,
+            'rain_1h': 8.0,
+            'humidity': 75,
+            'wind_speed': 4.0,
+            'weather': [{'description': 'thunderstorm', 'icon': '11d'}]
+        }
+        with patch('app.fetch_current_weather', return_value=mock_weather):
+            response = client.get('/api/weather/regional')
+            assert response.status_code == 200
+            data = response.get_json()
+            assert 'stations' in data
+            assert data['count'] > 0
+            assert data['stations'][0]['is_heavy_rain'] is True
+
     def test_404_handler(self, client):
         """Test non-existent route returns JSON 404."""
         response = client.get('/nonexistent-path')
