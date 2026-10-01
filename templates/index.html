@@ -164,14 +164,41 @@
                         <h2><i class="fas fa-cloud-showers-heavy text-info"></i> Weather & Rain Radar</h2>
                         <button class="btn btn-sm btn-ghost" id="refresh-weather-btn" title="Refresh Weather"><i class="fas fa-rotate"></i></button>
                     </div>
-                    <p class="panel-desc">Live weather stations across the Philippines with heavy rainfall & flood warnings (&ge; 7.5 mm/hr PAGASA threshold).</p>
+                    <p class="panel-desc">Live monitoring across 50+ Philippine stations, municipalities, and tourist islands with PAGASA rainfall warning thresholds.</p>
                 </div>
 
-                <!-- Rain Gauge Level Guide -->
+                <!-- Weather Search Bar -->
+                <div class="weather-search-box">
+                    <div class="input-wrapper">
+                        <i class="fas fa-search weather-search-icon"></i>
+                        <input type="text" id="weather-search-input" placeholder="Search municipality, town, island (e.g. Siargao, Sagada, Baler)..." autocomplete="off">
+                        <button class="btn btn-sm btn-ghost" id="weather-clear-search-btn" title="Clear Search" style="display: none;"><i class="fas fa-times"></i></button>
+                    </div>
+                </div>
+
+                <!-- Regional Filter Pills -->
+                <div class="weather-filter-pills">
+                    <button class="filter-pill active" data-region="all">All Stations</button>
+                    <button class="filter-pill" data-region="Luzon">Luzon</button>
+                    <button class="filter-pill" data-region="Visayas">Visayas</button>
+                    <button class="filter-pill" data-region="Mindanao">Mindanao</button>
+                    <button class="filter-pill" data-region="Islands">Islands & Tourism</button>
+                    <button class="filter-pill filter-alert" data-region="alert"><i class="fas fa-triangle-exclamation"></i> Heavy / Alert</button>
+                </div>
+
+                <!-- PAGASA 5-Tier Rainfall Warning Scale Guide -->
                 <div class="rain-scale-guide">
-                    <div class="scale-item"><span class="scale-dot light"></span> Light (&lt; 2.5 mm/h)</div>
-                    <div class="scale-item"><span class="scale-dot moderate"></span> Moderate (2.5 - 7.4)</div>
-                    <div class="scale-item"><span class="scale-dot heavy"></span> Heavy / Flood (&ge; 7.5)</div>
+                    <div class="scale-item" title="Normal: < 2.5 mm/hr"><span class="scale-dot light"></span> Light</div>
+                    <div class="scale-item" title="Moderate: 2.5 - 7.4 mm/hr"><span class="scale-dot moderate"></span> Moderate</div>
+                    <div class="scale-item" title="PAGASA Yellow: 7.5 - 15.0 mm/hr (Flooding Possible)"><span class="scale-dot yellow"></span> Yellow</div>
+                    <div class="scale-item" title="PAGASA Orange: 15.0 - 30.0 mm/hr (Flooding Threatening)"><span class="scale-dot orange"></span> Orange</div>
+                    <div class="scale-item" title="PAGASA Red: > 30.0 mm/hr (Torrential / Evacuate)"><span class="scale-dot red"></span> Red</div>
+                </div>
+
+                <!-- Station Count & Alert Summary -->
+                <div class="weather-status-bar" id="weather-status-bar">
+                    <span id="weather-station-count"><i class="fas fa-tower-broadcast"></i> Loading stations...</span>
+                    <span id="weather-alert-count" class="badge-alert-summary" style="display: none;"></span>
                 </div>
 
                 <!-- Regional Weather Station List -->
@@ -260,6 +287,9 @@
                     <i class="fas fa-route"></i> <span>Safe Route View</span>
                 </div>
                 <div class="map-actions">
+                    <button class="map-tool-btn" id="map-radar-toggle" title="Toggle Live Rain Radar Tile Layer">
+                        <i class="fas fa-cloud-rain"></i> <span>Rain Radar</span>
+                    </button>
                     <button class="map-tool-btn" id="map-recenter-btn" title="Reset Philippines View">
                         <i class="fas fa-compress"></i> <span>Center PH</span>
                     </button>
@@ -291,6 +321,30 @@
                     <div class="legend-item">
                         <span class="legend-poly flood-zone"></span>
                         <span class="legend-text"><strong>Flood / Heavy Rain Zone</strong> (&ge; 7.5 mm/h)</span>
+                    </div>
+                </div>
+
+                <div class="legend-section">
+                    <div class="legend-section-title">PAGASA Rainfall Warning Levels</div>
+                    <div class="legend-item">
+                        <span class="legend-dot rain-red"></span>
+                        <span class="legend-text"><strong>Red Alert</strong> (&ge; 30.0 mm/h - Torrential)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot rain-orange"></span>
+                        <span class="legend-text"><strong>Orange Alert</strong> (15.0 - 30.0 mm/h - Intense)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot rain-yellow"></span>
+                        <span class="legend-text"><strong>Yellow Alert</strong> (7.5 - 15.0 mm/h - Heavy)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot rain-moderate"></span>
+                        <span class="legend-text"><strong>Moderate Rain</strong> (2.5 - 7.4 mm/h)</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="legend-dot rain-light"></span>
+                        <span class="legend-text"><strong>Light / Clear</strong> (&lt; 2.5 mm/h)</span>
                     </div>
                 </div>
 

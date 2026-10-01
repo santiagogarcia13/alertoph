@@ -219,6 +219,83 @@ class TestAppEndpoints:
             assert 'stations' in data
             assert data['count'] > 0
             assert data['stations'][0]['is_heavy_rain'] is True
+            assert data['stations'][0]['pagasa_level'] == 'yellow'
+
+    def test_regional_weather_search_and_filter(self, client):
+        """Test GET /api/weather/regional with search and region parameters."""
+        mock_weather = {
+            'temperature': 28.0,
+            'rain_1h': 16.0,
+            'humidity': 80,
+            'wind_speed': 5.0,
+            'weather': [{'description': 'heavy rain', 'icon': '10d'}]
+        }
+        with patch('app.fetch_current_weather', return_value=mock_weather):
+            # Test search parameter for Siargao
+            res_search = client.get('/api/weather/regional?search=Siargao')
+            assert res_search.status_code == 200
+            data_search = res_search.get_json()
+            assert data_search['count'] >= 1
+            assert any('Siargao' in s['name'] for s in data_search['stations'])
+            assert data_search['stations'][0]['pagasa_level'] == 'orange'
+
+            # Test region parameter for Visayas
+            res_reg = client.get('/api/weather/regional?region=Visayas')
+            assert res_reg.status_code == 200
+            data_reg = res_reg.get_json()
+            assert data_reg['count'] >= 1
+            assert all(s['region'] == 'Visayas' for s in data_reg['stations'])
+            assert any('Boracay' in s['name'] for s in data_reg['stations'])
+
+            # Test region parameter for Islands
+            res_islands = client.get('/api/weather/regional?region=Islands')
+            assert res_islands.status_code == 200
+            data_islands = res_islands.get_json()
+            assert data_islands['count'] >= 5
+            assert any('Batanes' in s['name'] or 'Basco' in s['name'] for s in data_islands['stations'])
+            assert any('El Nido' in s['name'] for s in data_islands['stations'])
+            assert any('Siargao' in s['name'] for s in data_islands['stations'])
+
+            # Test alert_only parameter
+            res_alert = client.get('/api/weather/regional?alert_only=true')
+            assert res_alert.status_code == 200
+            data_alert = res_alert.get_json()
+            assert data_alert['count'] > 0
+            assert all(s['is_heavy_rain'] or s['rain_1h'] >= 7.5 for s in data_alert['stations'])
+
+    def test_regional_weather_small_municipalities(self, client):
+        """Test that small municipalities and remote tourist spots exist in stations list."""
+        mock_weather = {
+            'temperature': 24.0,
+            'rain_1h': 1.0,
+            'humidity': 70,
+            'wind_speed': 2.0,
+            'weather': [{'description': 'scattered clouds', 'icon': '03d'}]
+        }
+        with patch('app.fetch_current_weather', return_value=mock_weather):
+            response = client.get('/api/weather/regional')
+            assert response.status_code == 200
+            data = response.get_json()
+            station_names = [s['name'] for s in data['stations']]
+
+            # Check small municipalities / tourist gems
+            assert any('Sagada' in name for name in station_names)
+            assert any('Baler' in name for name in station_names)
+            assert any('Dingalan' in name for name in station_names)
+            assert any('Pagudpud' in name for name in station_names)
+            assert any('El Nido' in name for name in station_names)
+            assert any('Coron' in name for name in station_names)
+            assert any('Siquijor' in name for name in station_names)
+            assert any('Camiguin' in name for name in station_names)
+
+    def test_pagasa_warning_classification(self):
+        """Test PAGASA rainfall warning levels helper."""
+        from app import get_pagasa_warning_level
+        assert get_pagasa_warning_level(0.5)['level'] == 'light'
+        assert get_pagasa_warning_level(4.0)['level'] == 'moderate'
+        assert get_pagasa_warning_level(8.0)['level'] == 'yellow'
+        assert get_pagasa_warning_level(18.0)['level'] == 'orange'
+        assert get_pagasa_warning_level(35.0)['level'] == 'red'
 
     def test_404_handler(self, client):
         """Test non-existent route returns JSON 404."""

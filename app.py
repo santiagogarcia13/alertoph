@@ -2,6 +2,8 @@
 Main Flask application for AlertoPH.
 """
 import logging
+import time
+import concurrent.futures
 from datetime import datetime, timezone
 from flask import Flask, render_template, jsonify, request
 
@@ -61,8 +63,157 @@ PH_LOCATIONS = {
     'puerto princesa': (9.7392, 118.7353),
     'tacloban': (11.2444, 125.0039),
     'naga': (13.6218, 123.1948),
-    'general santos': (6.1164, 125.1716)
+    'general santos': (6.1164, 125.1716),
+    'siargao': (9.7811, 126.1558),
+    'boracay': (11.9674, 121.9248),
+    'coron': (11.9986, 120.2043),
+    'el nido': (11.1956, 119.4124),
+    'batanes': (20.4486, 121.9708),
+    'basco': (20.4486, 121.9708),
+    'sagada': (17.0833, 120.9000),
+    'banaue': (16.9115, 121.0617),
+    'baler': (15.7592, 121.5622),
+    'pagudpud': (18.5986, 120.7878),
+    'la union': (16.6159, 120.3209),
+    'san juan la union': (16.6744, 120.3394),
+    'vigan': (17.5747, 120.3869),
+    'tagaytay': (14.1153, 120.9621),
+    'legazpi': (13.1391, 123.7438),
+    'sorsogon': (12.9742, 124.0058),
+    'panglao': (9.5786, 123.7744),
+    'bohol': (9.8500, 124.1435),
+    'siquijor': (9.2141, 123.5158),
+    'camiguin': (9.1732, 124.7299),
+    'bantayan': (11.1719, 123.7258),
+    'malapascua': (11.3333, 124.1167),
+    'dumaguete': (9.3068, 123.3054),
+    'surigao': (9.7869, 125.4950),
+    'butuan': (8.9475, 125.5406),
+    'iligan': (8.2280, 124.2452),
+    'mati': (6.9550, 126.2167),
+    'romblon': (12.5786, 122.2708),
+    'catanduanes': (13.5853, 124.2378),
+    'virac': (13.5853, 124.2378),
+    'subic': (14.8781, 120.2842),
+    'olongapo': (14.8386, 120.2842),
+    'dingalan': (15.3956, 121.3969)
 }
+
+# Comprehensive Philippine Regional Weather & Radar Stations
+PH_REGIONAL_STATIONS = [
+    # --- Luzon (Major & Regional Centers) ---
+    {'name': 'Manila', 'province': 'Metro Manila', 'region': 'Luzon', 'lat': 14.5995, 'lng': 120.9842},
+    {'name': 'Quezon City', 'province': 'Metro Manila', 'region': 'Luzon', 'lat': 14.6760, 'lng': 121.0437},
+    {'name': 'Baguio City', 'province': 'Benguet', 'region': 'Luzon', 'lat': 16.4023, 'lng': 120.5960},
+    {'name': 'Sagada', 'province': 'Mountain Province', 'region': 'Luzon', 'lat': 17.0833, 'lng': 120.9000},
+    {'name': 'Banaue', 'province': 'Ifugao', 'region': 'Luzon', 'lat': 16.9115, 'lng': 121.0617},
+    {'name': 'Baler', 'province': 'Aurora', 'region': 'Luzon', 'lat': 15.7592, 'lng': 121.5622},
+    {'name': 'San Juan (Surf)', 'province': 'La Union', 'region': 'Luzon', 'lat': 16.6744, 'lng': 120.3394},
+    {'name': 'Pagudpud', 'province': 'Ilocos Norte', 'region': 'Luzon', 'lat': 18.5986, 'lng': 120.7878},
+    {'name': 'Vigan City', 'province': 'Ilocos Sur', 'region': 'Luzon', 'lat': 17.5747, 'lng': 120.3869},
+    {'name': 'Tuguegarao', 'province': 'Cagayan', 'region': 'Luzon', 'lat': 17.6132, 'lng': 121.7270},
+    {'name': 'Angeles City', 'province': 'Pampanga', 'region': 'Luzon', 'lat': 15.1450, 'lng': 120.5887},
+    {'name': 'Subic Bay', 'province': 'Zambales', 'region': 'Luzon', 'lat': 14.8781, 'lng': 120.2842},
+    {'name': 'Tagaytay', 'province': 'Cavite', 'region': 'Luzon', 'lat': 14.1153, 'lng': 120.9621},
+    {'name': 'Batangas City', 'province': 'Batangas', 'region': 'Luzon', 'lat': 13.7538, 'lng': 121.0594},
+    {'name': 'Lucena City', 'province': 'Quezon', 'region': 'Luzon', 'lat': 13.9314, 'lng': 121.6172},
+    {'name': 'Naga City', 'province': 'Camarines Sur', 'region': 'Luzon', 'lat': 13.6218, 'lng': 123.1948},
+    {'name': 'Legazpi (Mayon)', 'province': 'Albay', 'region': 'Luzon', 'lat': 13.1391, 'lng': 123.7438},
+    {'name': 'Daet', 'province': 'Camarines Norte', 'region': 'Luzon', 'lat': 14.1167, 'lng': 122.9500},
+    {'name': 'Sorsogon City', 'province': 'Sorsogon', 'region': 'Luzon', 'lat': 12.9742, 'lng': 124.0058},
+    {'name': 'Dingalan', 'province': 'Aurora', 'region': 'Luzon', 'lat': 15.3956, 'lng': 121.3969},
+
+    # --- Visayas (Islands & Urban Centers) ---
+    {'name': 'Cebu City', 'province': 'Cebu', 'region': 'Visayas', 'lat': 10.3157, 'lng': 123.8854},
+    {'name': 'Bantayan Island', 'province': 'Cebu', 'region': 'Visayas', 'lat': 11.1719, 'lng': 123.7258},
+    {'name': 'Malapascua', 'province': 'Cebu', 'region': 'Visayas', 'lat': 11.3333, 'lng': 124.1167},
+    {'name': 'Boracay Island', 'province': 'Aklan', 'region': 'Visayas', 'lat': 11.9674, 'lng': 121.9248},
+    {'name': 'Iloilo City', 'province': 'Iloilo', 'region': 'Visayas', 'lat': 10.7202, 'lng': 122.5621},
+    {'name': 'Bacolod City', 'province': 'Negros Occidental', 'region': 'Visayas', 'lat': 10.6760, 'lng': 122.9509},
+    {'name': 'Dumaguete', 'province': 'Negros Oriental', 'region': 'Visayas', 'lat': 9.3068, 'lng': 123.3054},
+    {'name': 'Panglao (Bohol)', 'province': 'Bohol', 'region': 'Visayas', 'lat': 9.5786, 'lng': 123.7744},
+    {'name': 'Siquijor Island', 'province': 'Siquijor', 'region': 'Visayas', 'lat': 9.2141, 'lng': 123.5158},
+    {'name': 'Tacloban City', 'province': 'Leyte', 'region': 'Visayas', 'lat': 11.2444, 'lng': 125.0039},
+    {'name': 'Ormoc City', 'province': 'Leyte', 'region': 'Visayas', 'lat': 11.0050, 'lng': 124.6075},
+    {'name': 'Catbalogan', 'province': 'Samar', 'region': 'Visayas', 'lat': 11.7753, 'lng': 124.8819},
+    {'name': 'Guiuan', 'province': 'Eastern Samar', 'region': 'Visayas', 'lat': 11.0333, 'lng': 125.7167},
+    {'name': 'Kalibo', 'province': 'Aklan', 'region': 'Visayas', 'lat': 11.7081, 'lng': 122.3644},
+    {'name': 'Roxas City', 'province': 'Capiz', 'region': 'Visayas', 'lat': 11.5853, 'lng': 122.7511},
+
+    # --- Mindanao ---
+    {'name': 'Davao City', 'province': 'Davao del Sur', 'region': 'Mindanao', 'lat': 7.1907, 'lng': 125.4553},
+    {'name': 'Cagayan de Oro', 'province': 'Misamis Oriental', 'region': 'Mindanao', 'lat': 8.4542, 'lng': 124.6319},
+    {'name': 'General Santos', 'province': 'South Cotabato', 'region': 'Mindanao', 'lat': 6.1164, 'lng': 125.1716},
+    {'name': 'Zamboanga City', 'province': 'Zamboanga del Sur', 'region': 'Mindanao', 'lat': 6.9214, 'lng': 122.0790},
+    {'name': 'Butuan City', 'province': 'Agusan del Norte', 'region': 'Mindanao', 'lat': 8.9475, 'lng': 125.5406},
+    {'name': 'Iligan City', 'province': 'Lanao del Norte', 'region': 'Mindanao', 'lat': 8.2280, 'lng': 124.2452},
+    {'name': 'Cotabato City', 'province': 'Maguindanao', 'region': 'Mindanao', 'lat': 7.2236, 'lng': 124.2464},
+    {'name': 'Surigao City', 'province': 'Surigao del Norte', 'region': 'Mindanao', 'lat': 9.7869, 'lng': 125.4950},
+    {'name': 'Malaybalay', 'province': 'Bukidnon', 'region': 'Mindanao', 'lat': 8.1575, 'lng': 125.1278},
+    {'name': 'Mati City', 'province': 'Davao Oriental', 'region': 'Mindanao', 'lat': 6.9550, 'lng': 126.2167},
+    {'name': 'Koronadal City', 'province': 'South Cotabato', 'region': 'Mindanao', 'lat': 6.5028, 'lng': 124.8464},
+    {'name': 'Dipolog City', 'province': 'Zamboanga del Norte', 'region': 'Mindanao', 'lat': 8.5878, 'lng': 123.3417},
+
+    # --- Islands, MIMAROPA & Tourism Destinations ---
+    {'name': 'Siargao (Gen. Luna)', 'province': 'Surigao del Norte', 'region': 'Islands', 'lat': 9.7811, 'lng': 126.1558},
+    {'name': 'El Nido', 'province': 'Palawan', 'region': 'Islands', 'lat': 11.1956, 'lng': 119.4124},
+    {'name': 'Coron', 'province': 'Palawan', 'region': 'Islands', 'lat': 11.9986, 'lng': 120.2043},
+    {'name': 'Puerto Princesa', 'province': 'Palawan', 'region': 'Islands', 'lat': 9.7392, 'lng': 118.7353},
+    {'name': 'San Vicente (Long Beach)', 'province': 'Palawan', 'region': 'Islands', 'lat': 10.5186, 'lng': 119.2789},
+    {'name': 'Basco / Batanes', 'province': 'Batanes', 'region': 'Islands', 'lat': 20.4486, 'lng': 121.9708},
+    {'name': 'Camiguin Island', 'province': 'Camiguin', 'region': 'Islands', 'lat': 9.1732, 'lng': 124.7299},
+    {'name': 'Romblon Island', 'province': 'Romblon', 'region': 'Islands', 'lat': 12.5786, 'lng': 122.2708},
+    {'name': 'Virac', 'province': 'Catanduanes', 'region': 'Islands', 'lat': 13.5853, 'lng': 124.2378},
+    {'name': 'Puerto Galera', 'province': 'Oriental Mindoro', 'region': 'Islands', 'lat': 13.5014, 'lng': 120.9542},
+    {'name': 'San Jose', 'province': 'Occidental Mindoro', 'region': 'Islands', 'lat': 12.3528, 'lng': 121.0675},
+    {'name': 'Jordan (Guimaras)', 'province': 'Guimaras', 'region': 'Islands', 'lat': 10.5939, 'lng': 122.5975}
+]
+
+def get_pagasa_warning_level(rain_1h: float) -> dict:
+    """Classify 1-hour rainfall according to official PAGASA rainfall advisory levels."""
+    if rain_1h >= 30.0:
+        return {
+            'level': 'red',
+            'label': 'Red Warning (Torrential)',
+            'color': '#ef4444',
+            'badge_class': 'badge-red',
+            'advice': 'Torrential rain: Severe flooding expected. Evacuation in low-lying areas advised.'
+        }
+    elif rain_1h >= 15.0:
+        return {
+            'level': 'orange',
+            'label': 'Orange Warning (Intense)',
+            'color': '#f97316',
+            'badge_class': 'badge-orange',
+            'advice': 'Intense rain: Flooding is threatening. Residents should be alert and prepare.'
+        }
+    elif rain_1h >= 7.5:
+        return {
+            'level': 'yellow',
+            'label': 'Yellow Warning (Heavy)',
+            'color': '#eab308',
+            'badge_class': 'badge-yellow',
+            'advice': 'Heavy rain: Flooding is possible in low-lying areas. Monitor conditions.'
+        }
+    elif rain_1h >= 2.5:
+        return {
+            'level': 'moderate',
+            'label': 'Moderate Rain',
+            'color': '#3b82f6',
+            'badge_class': 'badge-moderate',
+            'advice': 'Moderate rain: Wet roads and reduced visibility. Carry rain gear.'
+        }
+    else:
+        return {
+            'level': 'light',
+            'label': 'Light / No Rain',
+            'color': '#10b981',
+            'badge_class': 'badge-light',
+            'advice': 'Normal weather conditions.'
+        }
+
+# In-memory TTL cache for regional weather
+_REGIONAL_WEATHER_CACHE = {'timestamp': 0.0, 'data': []}
 
 @app.route('/')
 def index():
@@ -144,44 +295,104 @@ def get_earthquakes():
         return jsonify({'error': 'Failed to fetch earthquake data', 'earthquakes': [], 'count': 0}), 500
 
 
+def _fetch_single_station(station: dict) -> dict:
+    """Fetch weather for a single station and format with PAGASA alert levels."""
+    try:
+        w = fetch_current_weather(station['lat'], station['lng'])
+        if w and not w.get('error'):
+            rain_1h = float(w.get('rain_1h', 0) or 0)
+            warning_info = get_pagasa_warning_level(rain_1h)
+            condition = 'Clear'
+            icon = '01d'
+            if w.get('weather') and len(w['weather']) > 0:
+                condition = w['weather'][0].get('description', 'Clear')
+                icon = w['weather'][0].get('icon', '01d')
+
+            return {
+                'name': station['name'],
+                'province': station.get('province', ''),
+                'region': station.get('region', 'Luzon'),
+                'lat': station['lat'],
+                'lng': station['lng'],
+                'temperature': w.get('temperature'),
+                'rain_1h': rain_1h,
+                'humidity': w.get('humidity'),
+                'wind_speed': w.get('wind_speed'),
+                'condition': condition,
+                'icon': icon,
+                'is_heavy_rain': rain_1h >= Config.HEAVY_RAINFALL_THRESHOLD,
+                'pagasa_level': warning_info['level'],
+                'pagasa_label': warning_info['label'],
+                'pagasa_color': warning_info['color'],
+                'pagasa_badge_class': warning_info['badge_class'],
+                'pagasa_advice': warning_info['advice']
+            }
+    except Exception as e:
+        logger.warning(f"Failed to fetch weather for {station.get('name')}: {e}")
+    return None
+
+
 @app.route('/api/weather/regional', methods=['GET'])
 def get_regional_weather():
-    """Get current weather across major Philippine regions for map display."""
-    key_locations = [
-        {'name': 'Manila', 'lat': 14.5995, 'lng': 120.9842},
-        {'name': 'Baguio', 'lat': 16.4023, 'lng': 120.5960},
-        {'name': 'Cebu City', 'lat': 10.3157, 'lng': 123.8854},
-        {'name': 'Davao City', 'lat': 7.1907, 'lng': 125.4553},
-        {'name': 'Cagayan de Oro', 'lat': 8.4542, 'lng': 124.6319},
-        {'name': 'Iloilo City', 'lat': 10.7202, 'lng': 122.5621},
-        {'name': 'Naga City', 'lat': 13.6218, 'lng': 123.1948},
-        {'name': 'Tacloban', 'lat': 11.2444, 'lng': 125.0039},
-        {'name': 'Zamboanga', 'lat': 6.9214, 'lng': 122.0790},
-        {'name': 'Puerto Princesa', 'lat': 9.7392, 'lng': 118.7353}
-    ]
-    results = []
-    for loc in key_locations:
-        try:
-            w = fetch_current_weather(loc['lat'], loc['lng'])
-            if w and not w.get('error'):
-                results.append({
-                    'name': loc['name'],
-                    'lat': loc['lat'],
-                    'lng': loc['lng'],
-                    'temperature': w.get('temperature'),
-                    'rain_1h': w.get('rain_1h', 0),
-                    'humidity': w.get('humidity'),
-                    'wind_speed': w.get('wind_speed'),
-                    'condition': w.get('weather', [{}])[0].get('description', 'Clear'),
-                    'icon': w.get('weather', [{}])[0].get('icon', '01d'),
-                    'is_heavy_rain': w.get('rain_1h', 0) >= Config.HEAVY_RAINFALL_THRESHOLD
-                })
-        except Exception as e:
-            logger.warning(f"Failed to fetch weather for {loc['name']}: {e}")
+    """
+    Get current weather across 50+ Philippine regional stations with PAGASA rainfall warning levels.
+    Supports optional search, region, and alert_only filters.
+    """
+    global _REGIONAL_WEATHER_CACHE
+    now = time.time()
+    cache_ttl = 300.0  # 5 minutes
+
+    is_testing = app.config.get('TESTING', False)
+    use_cache = not is_testing and (now - _REGIONAL_WEATHER_CACHE['timestamp'] < cache_ttl) and len(_REGIONAL_WEATHER_CACHE['data']) > 0
+
+    if use_cache:
+        all_stations = _REGIONAL_WEATHER_CACHE['data']
+    else:
+        # Multi-threaded concurrent fetching across all stations
+        results = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+            future_to_station = {executor.submit(_fetch_single_station, st): st for st in PH_REGIONAL_STATIONS}
+            for future in concurrent.futures.as_completed(future_to_station):
+                data = future.result()
+                if data:
+                    results.append(data)
+
+        # Sort stations: Heavy rain alerts first, then alphabetically by name
+        results.sort(key=lambda s: (-s['rain_1h'], s['name']))
+        all_stations = results
+        if not is_testing and results:
+            _REGIONAL_WEATHER_CACHE = {'timestamp': now, 'data': results}
+
+    # Optional server-side query filters
+    search_q = request.args.get('search', '').strip().lower()
+    region_filter = request.args.get('region', '').strip()
+    alert_only = request.args.get('alert_only', '').lower() in ['true', '1', 'yes']
+
+    filtered = all_stations
+    if region_filter and region_filter.lower() != 'all':
+        filtered = [s for s in filtered if s.get('region', '').lower() == region_filter.lower()]
+
+    if alert_only:
+        filtered = [s for s in filtered if s.get('is_heavy_rain') or s.get('rain_1h', 0) >= 2.5]
+
+    if search_q:
+        filtered = [
+            s for s in filtered
+            if search_q in s.get('name', '').lower()
+            or search_q in s.get('province', '').lower()
+            or search_q in s.get('region', '').lower()
+        ]
+
+    # Summary statistics
+    alert_count = sum(1 for s in all_stations if s.get('is_heavy_rain'))
+    moderate_count = sum(1 for s in all_stations if s.get('pagasa_level') == 'moderate')
 
     return jsonify({
-        'count': len(results),
-        'stations': results,
+        'count': len(filtered),
+        'total_stations': len(all_stations),
+        'alert_count': alert_count,
+        'moderate_count': moderate_count,
+        'stations': filtered,
         'timestamp': datetime.now(timezone.utc).isoformat()
     })
 

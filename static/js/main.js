@@ -16,8 +16,12 @@ const AppState = {
         weatherGroup: null,
         advisoryMarker: null,
         originMarker: null,
-        destMarker: null
+        destMarker: null,
+        radarLayer: null
     },
+    radarActive: false,
+    weatherSearchQuery: '',
+    selectedWeatherRegion: 'all',
     earthquakes: [],
     weatherStations: [],
     currentAdvisory: null,
@@ -57,11 +61,16 @@ const el = {
     // Earthquake Panel
     earthquakeFeed: document.getElementById('earthquake-feed'),
     refreshQuakesBtn: document.getElementById('refresh-quakes-btn'),
-    quakeFilterPills: document.querySelectorAll('.filter-pill'),
+    quakeFilterPills: document.querySelectorAll('.earthquake-feed-filters .filter-pill, #panel-earthquake .filter-pill'),
 
     // Weather Panel
     weatherStationList: document.getElementById('weather-station-list'),
     refreshWeatherBtn: document.getElementById('refresh-weather-btn'),
+    weatherSearchInput: document.getElementById('weather-search-input'),
+    weatherClearSearchBtn: document.getElementById('weather-clear-search-btn'),
+    weatherFilterPills: document.querySelectorAll('.weather-filter-pills .filter-pill'),
+    weatherStationCount: document.getElementById('weather-station-count'),
+    weatherAlertCount: document.getElementById('weather-alert-count'),
 
     // Advisory Panel
     locationInput: document.getElementById('location-input'),
@@ -84,6 +93,7 @@ const el = {
 
     // Map UI
     mapModeIndicator: document.getElementById('map-mode-indicator'),
+    mapRadarToggle: document.getElementById('map-radar-toggle'),
     mapRecenterBtn: document.getElementById('map-recenter-btn'),
     mapLegendToggle: document.getElementById('map-legend-toggle'),
     mapLegendCard: document.getElementById('map-legend-card'),
@@ -251,10 +261,46 @@ function setupEventListeners() {
     // Weather feed
     el.refreshWeatherBtn.addEventListener('click', loadRegionalWeather);
 
+    // Weather Search & Regional Filter Controls
+    if (el.weatherSearchInput) {
+        el.weatherSearchInput.addEventListener('input', () => {
+            AppState.weatherSearchQuery = el.weatherSearchInput.value.trim();
+            if (el.weatherClearSearchBtn) {
+                el.weatherClearSearchBtn.style.display = AppState.weatherSearchQuery ? 'inline-flex' : 'none';
+            }
+            filterAndRenderWeather();
+        });
+    }
+
+    if (el.weatherClearSearchBtn) {
+        el.weatherClearSearchBtn.addEventListener('click', () => {
+            el.weatherSearchInput.value = '';
+            AppState.weatherSearchQuery = '';
+            el.weatherClearSearchBtn.style.display = 'none';
+            filterAndRenderWeather();
+            el.weatherSearchInput.focus();
+        });
+    }
+
+    if (el.weatherFilterPills) {
+        el.weatherFilterPills.forEach(pill => {
+            pill.addEventListener('click', () => {
+                el.weatherFilterPills.forEach(p => p.classList.remove('active'));
+                pill.classList.add('active');
+                AppState.selectedWeatherRegion = pill.dataset.region || 'all';
+                filterAndRenderWeather();
+            });
+        });
+    }
+
     // Map tools
     el.mapRecenterBtn.addEventListener('click', () => {
         AppState.map.setView(AppState.phCenter, AppState.defaultZoom);
     });
+
+    if (el.mapRadarToggle) {
+        el.mapRadarToggle.addEventListener('click', toggleRainRadar);
+    }
 
     el.mapLegendToggle.addEventListener('click', () => {
         const isVisible = el.mapLegendCard.style.display !== 'none';
@@ -798,16 +844,18 @@ function focusEarthquake(lat, lng, mag) {
 }
 
 /* -------------------------------------------------------------
-   Weather & Rain Stations Feed & Map Layer
+   Weather & Rain Stations Feed, Search, & Radar Map Layer
 ------------------------------------------------------------- */
 function loadRegionalWeather() {
-    el.weatherStationList.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Fetching weather stations...</div>';
+    if (el.weatherStationList) {
+        el.weatherStationList.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Fetching Philippine weather stations...</div>';
+    }
 
     fetch('/api/weather/regional')
         .then(r => r.json())
         .then(data => {
             AppState.weatherStations = data.stations || [];
-            renderWeatherStationList(AppState.weatherStations);
+            filterAndRenderWeather();
 
             if (AppState.activeTab === 'weather') {
                 renderWeatherStationsOnMap(AppState.weatherStations);
@@ -817,30 +865,120 @@ function loadRegionalWeather() {
         })
         .catch(err => {
             console.error('Weather stations error:', err);
-            el.weatherStationList.innerHTML = '<div class="error-state">Failed to load weather stations.</div>';
+            if (el.weatherStationList) {
+                el.weatherStationList.innerHTML = '<div class="error-state">Failed to load weather stations.</div>';
+            }
             updateHealthChip(el.chipWeather, false);
         });
 }
 
+function filterAndRenderWeather() {
+    let filtered = AppState.weatherStations || [];
+    const query = (AppState.weatherSearchQuery || '').toLowerCase().trim();
+    const region = AppState.selectedWeatherRegion || 'all';
+
+    // 1. Text Search Filter (name, province, region)
+    if (query) {
+        filtered = filtered.filter(s => {
+            const nameMatch = s.name && s.name.toLowerCase().includes(query);
+            const provMatch = s.province && s.province.toLowerCase().includes(query);
+            const regMatch = s.region && s.region.toLowerCase().includes(query);
+            return nameMatch || provMatch || regMatch;
+        });
+    }
+
+    // 2. Region / Alert Category Filter
+    if (region === 'alert') {
+        filtered = filtered.filter(s => {
+            const rain = s.rain_1h || 0;
+            const pagasaLevel = s.pagasa_level || (rain >= 30 ? 'red' : rain >= 15 ? 'orange' : rain >= 7.5 ? 'yellow' : 'light');
+            return s.is_heavy_rain || rain >= 7.5 || pagasaLevel === 'yellow' || pagasaLevel === 'orange' || pagasaLevel === 'red';
+        });
+    } else if (region !== 'all') {
+        filtered = filtered.filter(s => s.region === region);
+    }
+
+    renderWeatherStationList(filtered);
+    updateWeatherStatusBar(filtered, AppState.weatherStations);
+
+    if (AppState.activeTab === 'weather') {
+        renderWeatherStationsOnMap(filtered);
+    }
+}
+
+function updateWeatherStatusBar(filtered, all) {
+    if (!el.weatherStationCount) return;
+
+    const totalCount = all.length;
+    const filteredCount = filtered.length;
+    const alertCount = all.filter(s => (s.rain_1h || 0) >= 7.5 || s.is_heavy_rain).length;
+
+    if (AppState.weatherSearchQuery || AppState.selectedWeatherRegion !== 'all') {
+        el.weatherStationCount.innerHTML = `<i class="fas fa-tower-broadcast"></i> Showing <strong>${filteredCount}</strong> of ${totalCount} stations`;
+    } else {
+        el.weatherStationCount.innerHTML = `<i class="fas fa-tower-broadcast"></i> Monitoring <strong>${totalCount}</strong> Philippine stations`;
+    }
+
+    if (el.weatherAlertCount) {
+        if (alertCount > 0) {
+            el.weatherAlertCount.style.display = 'inline-flex';
+            el.weatherAlertCount.innerHTML = `<i class="fas fa-triangle-exclamation"></i> ${alertCount} Heavy Rain Warning${alertCount > 1 ? 's' : ''}`;
+        } else {
+            el.weatherAlertCount.style.display = 'none';
+        }
+    }
+}
+
 function renderWeatherStationList(stations) {
+    if (!el.weatherStationList) return;
+
     if (!stations || stations.length === 0) {
-        el.weatherStationList.innerHTML = '<div class="no-data">Weather data unavailable.</div>';
+        el.weatherStationList.innerHTML = `
+            <div class="no-data">
+                <i class="fas fa-magnifying-glass" style="font-size:1.5rem; margin-bottom:8px; opacity:0.6;"></i><br>
+                No weather stations match your search or filter.
+            </div>
+        `;
         return;
     }
 
     let html = '';
     stations.forEach(s => {
-        const isHeavy = s.is_heavy_rain || (s.rain_1h >= 7.5);
+        const rain = s.rain_1h || 0;
+        const level = s.pagasa_level || (rain >= 30 ? 'red' : rain >= 15 ? 'orange' : rain >= 7.5 ? 'yellow' : rain >= 2.5 ? 'moderate' : 'light');
+        const badgeLabel = s.pagasa_badge_label || (
+            level === 'red' ? 'Red (Torrential)' :
+            level === 'orange' ? 'Orange (Intense)' :
+            level === 'yellow' ? 'Yellow (Heavy)' :
+            level === 'moderate' ? 'Moderate' : 'Light / Clear'
+        );
+        const advice = s.pagasa_advice || (
+            level === 'red' ? 'Torrential rain: Severe flooding expected. Evacuate low areas.' :
+            level === 'orange' ? 'Intense rain: Flooding is threatening. Be alert.' :
+            level === 'yellow' ? 'Heavy rain: Flooding possible in low-lying areas.' :
+            level === 'moderate' ? 'Moderate rain: Wet roads and reduced visibility.' : 'Normal weather conditions.'
+        );
+
         html += `
-            <div class="station-card ${isHeavy ? 'heavy-alert' : ''}" onclick="focusStation(${s.lat}, ${s.lng})">
+            <div class="station-card pagasa-${level}" onclick="focusStation(${s.lat}, ${s.lng})">
                 <div class="station-info">
-                    <span class="station-city">${escapeHtml(s.name)}</span>
-                    <span class="station-condition">${escapeHtml(s.condition || 'Clear')}</span>
+                    <div class="station-title-row">
+                        <span class="station-city">${escapeHtml(s.name)}</span>
+                        <span class="pagasa-badge ${level}">${escapeHtml(badgeLabel)}</span>
+                    </div>
+                    <div class="station-sub-meta">
+                        <span><i class="fas fa-location-dot"></i> ${escapeHtml(s.province || s.region || 'Philippines')}</span>
+                        <span>•</span>
+                        <span>${escapeHtml(s.condition || 'Clear')}</span>
+                    </div>
+                    <div class="station-advice-line">
+                        <i class="fas fa-shield-halved"></i> ${escapeHtml(advice)}
+                    </div>
                 </div>
                 <div class="station-metrics">
                     <span class="station-temp">${s.temperature !== undefined ? `${Math.round(s.temperature)}°C` : '-'}</span>
-                    <span class="station-rain ${isHeavy ? 'heavy' : ''}">
-                        <i class="fas fa-droplet"></i> ${s.rain_1h ? s.rain_1h.toFixed(1) : '0.0'} mm/h
+                    <span class="station-rain ${rain >= 7.5 ? 'heavy' : ''}">
+                        <i class="fas fa-droplet"></i> ${rain.toFixed(1)} mm/h
                     </span>
                 </div>
             </div>
@@ -854,10 +992,19 @@ function renderWeatherStationsOnMap(stations) {
     AppState.mapLayers.weatherGroup.clearLayers();
 
     stations.forEach(s => {
-        const isHeavy = s.is_heavy_rain || (s.rain_1h >= 7.5);
+        const rain = s.rain_1h || 0;
+        const level = s.pagasa_level || (rain >= 30 ? 'red' : rain >= 15 ? 'orange' : rain >= 7.5 ? 'yellow' : rain >= 2.5 ? 'moderate' : 'light');
+        const isHeavy = rain >= 7.5;
+        const badgeLabel = s.pagasa_badge_label || (
+            level === 'red' ? 'PAGASA Red Warning' :
+            level === 'orange' ? 'PAGASA Orange Warning' :
+            level === 'yellow' ? 'PAGASA Yellow Warning' :
+            level === 'moderate' ? 'Moderate Rain' : 'Light / Clear'
+        );
+
         const iconHtml = `
-            <div class="custom-weather-marker ${isHeavy ? 'heavy-rain' : ''}">
-                <i class="fas ${isHeavy ? 'fa-cloud-bolt text-danger' : 'fa-cloud-sun text-info'}"></i>
+            <div class="custom-weather-marker level-${level} ${isHeavy ? 'heavy-rain' : ''}">
+                <i class="fas ${isHeavy ? 'fa-cloud-bolt text-danger' : rain >= 2.5 ? 'fa-cloud-showers-heavy' : 'fa-cloud-sun text-info'}"></i>
                 <span>${s.temperature !== undefined ? Math.round(s.temperature) : '-'}°C</span>
             </div>
         `;
@@ -866,17 +1013,24 @@ function renderWeatherStationsOnMap(stations) {
             icon: L.divIcon({
                 className: 'custom-weather-div',
                 html: iconHtml,
-                iconSize: [60, 26],
-                iconAnchor: [30, 13]
+                iconSize: [68, 28],
+                iconAnchor: [34, 14]
             })
         });
 
         marker.bindPopup(`
-            <div style="font-family: inherit;">
-                <h4 style="margin:0 0 4px; font-weight:800;">${escapeHtml(s.name)}</h4>
-                <p style="margin:0 0 4px;"><strong>${s.temperature?.toFixed(1)}°C</strong> - ${escapeHtml(s.condition || '')}</p>
-                <p style="margin:0; color:${isHeavy ? '#ef4444' : '#0284c7'}; font-weight:700;">
-                    Rainfall: ${s.rain_1h?.toFixed(1) || 0} mm/h ${isHeavy ? '(FLOOD ALERT)' : ''}
+            <div style="font-family: inherit; min-width: 190px;">
+                <h4 style="margin:0 0 4px; font-weight:800; font-size:0.95rem;">${escapeHtml(s.name)}</h4>
+                <p style="margin:0 0 4px; color:#64748b; font-size:0.8rem;">${escapeHtml(s.province || '')} (${escapeHtml(s.region || 'Philippines')})</p>
+                <div style="margin:6px 0; padding:4px 8px; border-radius:4px; font-size:0.75rem; font-weight:700; background:${level === 'red' ? '#ef4444' : level === 'orange' ? '#f97316' : level === 'yellow' ? '#eab308' : level === 'moderate' ? '#3b82f6' : '#10b981'}; color:#ffffff;">
+                    ${escapeHtml(badgeLabel)}
+                </div>
+                <p style="margin:4px 0; font-size:0.85rem;"><strong>${s.temperature?.toFixed(1) || '-'}°C</strong> - ${escapeHtml(s.condition || '')}</p>
+                <p style="margin:4px 0; color:${isHeavy ? '#ef4444' : '#0284c7'}; font-weight:700; font-size:0.82rem;">
+                    <i class="fas fa-droplet"></i> Rainfall: ${rain.toFixed(1)} mm/h
+                </p>
+                <p style="margin:6px 0 0; font-size:0.75rem; line-height:1.3; color:#334155;">
+                    ${escapeHtml(s.pagasa_advice || 'Standard monitoring.')}
                 </p>
             </div>
         `);
@@ -891,6 +1045,67 @@ function focusStation(lat, lng) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     AppState.map.flyTo([lat, lng], 10, { duration: 1.2 });
+}
+
+/* -------------------------------------------------------------
+   Precipitation Rain Radar Map Tile Layer
+------------------------------------------------------------- */
+async function toggleRainRadar() {
+    const btn = el.mapRadarToggle;
+
+    if (AppState.radarActive) {
+        // Deactivate Radar
+        if (AppState.mapLayers.radarLayer) {
+            AppState.map.removeLayer(AppState.mapLayers.radarLayer);
+            AppState.mapLayers.radarLayer = null;
+        }
+        AppState.radarActive = false;
+        if (btn) btn.classList.remove('active');
+        return;
+    }
+
+    // Activate Radar
+    if (btn) btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> <span>Radar...</span>';
+
+    try {
+        // Fetch latest RainViewer timestamp for real-time radar satellite overlay
+        const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+        const data = await resp.json();
+
+        let radarPath = '/v2/radar/nowcast_0';
+        if (data && data.radar && data.radar.past && data.radar.past.length > 0) {
+            const latest = data.radar.past[data.radar.past.length - 1];
+            radarPath = latest.path;
+        }
+
+        const tileUrl = `https://tilecache.rainviewer.com${radarPath}/256/{z}/{x}/{y}/2/1_1.png`;
+
+        AppState.mapLayers.radarLayer = L.tileLayer(tileUrl, {
+            opacity: 0.72,
+            maxZoom: 18,
+            attribution: '&copy; <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a> Radar'
+        }).addTo(AppState.map);
+
+        AppState.radarActive = true;
+        if (btn) {
+            btn.classList.add('active');
+            btn.innerHTML = '<i class="fas fa-cloud-rain"></i> <span>Radar Active</span>';
+        }
+    } catch (err) {
+        console.warn('RainViewer API fetch failed, falling back to direct tile cache:', err);
+        // Fallback tile url
+        AppState.mapLayers.radarLayer = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/nowcast_0/256/{z}/{x}/{y}/2/1_1.png', {
+            opacity: 0.72,
+            maxZoom: 18,
+            attribution: '&copy; <a href="https://www.rainviewer.com/" target="_blank">RainViewer</a> Radar'
+        }).addTo(AppState.map);
+
+        AppState.radarActive = true;
+        if (btn) {
+            btn.classList.add('active');
+            btn.innerHTML = '<i class="fas fa-cloud-rain"></i> <span>Radar Active</span>';
+        }
+    }
 }
 
 /* -------------------------------------------------------------
