@@ -1159,37 +1159,52 @@ body {
 
 
 /* -------------------------------------------------------------
-   Responsive Mobile Optimization (Zero-Scroll Map Access)
+   Responsive Mobile Optimization
 ------------------------------------------------------------- */
 @media (max-width: 900px) {
     body {
         height: 100%;
+        min-height: 100vh;
         overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     .navbar {
         height: auto;
         padding: 10px 14px;
         flex-wrap: wrap;
-        gap: 8px;
+        gap: 10px;
+    }
+
+    .nav-brand {
+        flex: 1;
     }
 
     .nav-tabs {
         order: 3;
         width: 100%;
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
         justify-content: flex-start;
         padding: 4px;
+        gap: 4px;
+    }
+
+    .nav-tabs::-webkit-scrollbar {
+        display: none;
     }
 
     .tab-btn {
-        padding: 6px 10px;
-        font-size: 0.78rem;
+        padding: 8px 12px;
+        font-size: 0.82rem;
+        min-height: 38px;
         white-space: nowrap;
+        flex-shrink: 0;
     }
 
     .nav-status {
-        display: none; /* Saved space on phone */
+        display: none; /* Conserve vertical space on mobile */
     }
 
     .app-layout {
@@ -1200,14 +1215,14 @@ body {
 
     /* Pinned Responsive Map at Top of Screen */
     .map-view-container {
-        height: 46vh;
+        height: 48vh;
         min-height: 280px;
         position: sticky;
         top: 0;
         z-index: 40;
     }
 
-    /* Controls directly underneath */
+    /* Sidebar controls directly underneath map */
     .sidebar {
         width: 100%;
         min-width: 100%;
@@ -1216,25 +1231,178 @@ body {
         border-right: none;
         border-top: 1px solid var(--border-color);
         box-shadow: none;
+        padding-bottom: 70px; /* Room for floating button */
     }
 
     .tab-panel {
         padding: 14px;
+        gap: 14px;
     }
 
+    /* Mobile Form Input Sizing - 16px prevents iOS Safari auto-zoom */
+    .input-wrapper input,
+    .search-form-card input,
+    .coord-grid input {
+        font-size: 16px !important;
+        padding: 12px 14px;
+        min-height: 44px;
+    }
+
+    .input-action-btn {
+        min-width: 40px;
+        min-height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .btn {
+        min-height: 44px;
+        font-size: 0.92rem;
+    }
+
+    .btn-sm {
+        min-height: 36px;
+        padding: 6px 12px;
+    }
+
+    .map-pick-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .pick-btn-group {
+        width: 100%;
+        display: flex;
+        gap: 6px;
+    }
+
+    .pick-btn-group .btn {
+        flex: 1;
+        justify-content: center;
+    }
+
+    .filter-pills {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 4px;
+    }
+
+    .filter-pills::-webkit-scrollbar {
+        display: none;
+    }
+
+    .filter-pill {
+        min-height: 34px;
+        padding: 6px 14px;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    /* Floating Legend Card on Mobile */
     .map-legend-card {
-        display: none; /* Toggleable on phone to avoid map clutter */
-        bottom: 10px;
-        right: 10px;
-        left: 10px;
+        display: none;
+        position: fixed;
+        bottom: 75px;
+        right: 12px;
+        left: 12px;
         width: auto;
+        max-height: 60vh;
+        z-index: 1100;
+        box-shadow: var(--shadow-float);
+        border: 1px solid var(--border-dark);
     }
 
     .map-legend-card.mobile-open {
         display: flex;
     }
 
+    /* Floating Action Button for Mobile Toggle */
     .mobile-toggle-btn {
-        display: flex;
+        display: inline-flex;
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-primary);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        padding: 12px 22px;
+        border-radius: var(--radius-full);
+        font-weight: 700;
+        font-size: 0.88rem;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+        z-index: 1000;
+        cursor: pointer;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+        touch-action: manipulation;
+        transition: transform 0.2s ease, background-color 0.2s ease;
+    }
+
+    .mobile-toggle-btn:active {
+        transform: translateX(-50%) scale(0.96);
+        background-color: var(--primary);
+    }
+}
+
+/* Extra small mobile screens (<= 480px) */
+@media (max-width: 480px) {
+    .advisory-details-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .rain-scale-guide {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+
+    .coord-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .coord-btn-row {
+        flex-direction: column;
+    }
+
+    .coord-btn-row .btn {
+        width: 100%;
+    }
+
+    .metrics-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+        padding: 8px 4px;
+    }
+
+    .metric-val {
+        font-size: 0.95rem;
+    }
+
+    .metric-label {
+        font-size: 0.65rem;
+    }
+
+    .map-top-bar {
+        top: 8px;
+        left: 8px;
+        right: 8px;
+    }
+
+    .map-mode-indicator {
+        font-size: 0.75rem;
+        padding: 6px 10px;
+    }
+
+    .map-tool-btn {
+        font-size: 0.75rem;
+        padding: 6px 10px;
+    }
+
+    .map-tool-btn span {
+        display: none; /* Show only icons on very small screens */
     }
 }

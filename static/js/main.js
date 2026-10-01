@@ -176,6 +176,11 @@ function switchMode(tabName) {
 
     // Update Map Indicator & Layer visibility
     updateMapForActiveTab(tabName);
+
+    // Invalidate map size on tab switch for responsive rendering
+    if (AppState.map) {
+        setTimeout(() => AppState.map.invalidateSize(), 150);
+    }
 }
 
 function updateMapForActiveTab(tab) {
@@ -262,9 +267,45 @@ function setupEventListeners() {
         el.mapLegendCard.classList.remove('mobile-open');
     });
 
-    // Mobile quick toggle
-    el.mobileToggleBtn.addEventListener('click', () => {
-        el.sidebar.scrollIntoView({ behavior: 'smooth' });
+    // Mobile quick toggle (Smart bidirectional scrolling)
+    if (el.mobileToggleBtn) {
+        el.mobileToggleBtn.addEventListener('click', () => {
+            const mapContainer = document.querySelector('.map-view-container');
+            const scrollPos = window.scrollY || document.documentElement.scrollTop;
+            const threshold = 180;
+
+            if (scrollPos > threshold) {
+                // Currently scrolled down to controls/feed -> Scroll up to map
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } else {
+                // Currently at map -> Scroll down to controls
+                el.sidebar.scrollIntoView({ behavior: 'smooth' });
+            }
+        });
+
+        // Update mobile toggle button text & icon based on scroll position
+        window.addEventListener('scroll', () => {
+            if (window.innerWidth > 900) return;
+            const scrollPos = window.scrollY || document.documentElement.scrollTop;
+            if (scrollPos > 180) {
+                el.mobileToggleBtn.innerHTML = '<i class="fas fa-map"></i> <span>View Map</span>';
+            } else {
+                el.mobileToggleBtn.innerHTML = '<i class="fas fa-sliders"></i> <span>Edit Controls</span>';
+            }
+        }, { passive: true });
+    }
+
+    // Responsive window resize & orientation change handler
+    window.addEventListener('resize', () => {
+        if (AppState.map) {
+            AppState.map.invalidateSize();
+        }
+    });
+
+    window.addEventListener('orientationchange', () => {
+        setTimeout(() => {
+            if (AppState.map) AppState.map.invalidateSize();
+        }, 200);
     });
 }
 
@@ -750,6 +791,9 @@ function renderEarthquakesOnMap(quakes) {
 
 function focusEarthquake(lat, lng, mag) {
     switchMode('earthquake');
+    if (window.innerWidth <= 900) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     AppState.map.flyTo([lat, lng], 9, { duration: 1.2 });
 }
 
@@ -843,6 +887,9 @@ function renderWeatherStationsOnMap(stations) {
 
 function focusStation(lat, lng) {
     switchMode('weather');
+    if (window.innerWidth <= 900) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
     AppState.map.flyTo([lat, lng], 10, { duration: 1.2 });
 }
 
