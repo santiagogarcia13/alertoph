@@ -342,38 +342,80 @@ function setupEventListeners() {
         el.mapLegendCard.classList.remove('mobile-open');
     });
 
-    // Mobile drawer toggle - zoom.earth style slide-up panel
+    // Mobile drawer toggle - zoom.earth style slide-up panel with swipe support
     if (el.mobileToggleBtn) {
-        const toggleDrawer = () => {
-            el.sidebar.classList.toggle('expanded');
-            const isExpanded = el.sidebar.classList.contains('expanded');
-            el.mobileToggleBtn.innerHTML = isExpanded
-                ? '<i class="fas fa-chevron-down"></i> <span>Hide Controls</span>'
-                : '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
-
-            // Invalidate map size after drawer transition
+        const expandDrawer = () => {
+            el.sidebar.classList.add('expanded');
+            el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> <span>Hide Controls</span>';
             setTimeout(() => {
                 if (AppState.map) AppState.map.invalidateSize();
             }, 350);
         };
 
+        const collapseDrawer = () => {
+            el.sidebar.classList.remove('expanded');
+            el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
+            setTimeout(() => {
+                if (AppState.map) AppState.map.invalidateSize();
+            }, 350);
+        };
+
+        const toggleDrawer = () => {
+            if (el.sidebar.classList.contains('expanded')) {
+                collapseDrawer();
+            } else {
+                expandDrawer();
+            }
+        };
+
         el.mobileToggleBtn.addEventListener('click', toggleDrawer);
 
-        // Tap drawer handle area to expand (top 40px of drawer when not expanded)
-        el.sidebar.addEventListener('click', (e) => {
-            if (window.innerWidth <= 900 && !el.sidebar.classList.contains('expanded')) {
-                const rect = el.sidebar.getBoundingClientRect();
-                const clickY = e.clientY - rect.top;
-                // Only expand if clicking top 40px (handle area)
-                if (clickY < 40) {
-                    el.sidebar.classList.add('expanded');
-                    el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> <span>Hide Controls</span>';
-                    setTimeout(() => {
-                        if (AppState.map) AppState.map.invalidateSize();
-                    }, 350);
-                }
+        // Touch/swipe interaction for drawer handle
+        let touchStartY = 0;
+        let touchStartTime = 0;
+        let isDragging = false;
+
+        el.sidebar.addEventListener('touchstart', (e) => {
+            if (window.innerWidth > 900) return;
+
+            const rect = el.sidebar.getBoundingClientRect();
+            const touchY = e.touches[0].clientY - rect.top;
+
+            // Only handle touches on the handle area (top 32px)
+            if (touchY < 32 && !el.sidebar.classList.contains('expanded')) {
+                touchStartY = e.touches[0].clientY;
+                touchStartTime = Date.now();
+                isDragging = true;
             }
-        });
+        }, { passive: true });
+
+        el.sidebar.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+
+            const touchY = e.touches[0].clientY;
+            const deltaY = touchStartY - touchY;
+
+            // Swipe up to expand
+            if (deltaY > 50) {
+                isDragging = false;
+                expandDrawer();
+            }
+        }, { passive: true });
+
+        el.sidebar.addEventListener('touchend', (e) => {
+            if (!isDragging) return;
+
+            const touchEndY = e.changedTouches[0].clientY;
+            const deltaY = touchStartY - touchEndY;
+            const deltaTime = Date.now() - touchStartTime;
+
+            // Quick swipe up or significant drag
+            if ((deltaTime < 300 && deltaY > 20) || deltaY > 50) {
+                expandDrawer();
+            }
+
+            isDragging = false;
+        }, { passive: true });
 
         // Click outside drawer to close on mobile
         document.addEventListener('click', (e) => {
@@ -381,11 +423,7 @@ function setupEventListeners() {
                 el.sidebar.classList.contains('expanded') &&
                 !el.sidebar.contains(e.target) &&
                 !el.mobileToggleBtn.contains(e.target)) {
-                el.sidebar.classList.remove('expanded');
-                el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
-                setTimeout(() => {
-                    if (AppState.map) AppState.map.invalidateSize();
-                }, 350);
+                collapseDrawer();
             }
         });
     }

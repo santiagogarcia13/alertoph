@@ -1510,15 +1510,14 @@ body {
         transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
         overflow: hidden;
         order: 2;
-        cursor: pointer;
+        touch-action: pan-y;
     }
 
     .sidebar.expanded {
         transform: translateY(0);
-        cursor: default;
     }
 
-    /* Drawer handle - more prominent */
+    /* Drawer handle - more prominent and interactive */
     .sidebar::before {
         content: '';
         position: absolute;
@@ -1531,10 +1530,28 @@ body {
         border-radius: 3px;
         z-index: 10;
         transition: background 0.2s;
+        pointer-events: none;
     }
 
     .sidebar:not(.expanded)::before {
         background: #64748b;
+    }
+
+    /* Drawer handle hit area */
+    .sidebar::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 32px;
+        z-index: 5;
+        cursor: pointer;
+        touch-action: manipulation;
+    }
+
+    .sidebar.expanded::after {
+        pointer-events: none;
     }
 
     .tab-panel {
