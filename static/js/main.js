@@ -342,35 +342,34 @@ function setupEventListeners() {
         el.mapLegendCard.classList.remove('mobile-open');
     });
 
-    // Mobile quick toggle (Smart bidirectional scrolling)
+    // Mobile drawer toggle - zoom.earth style slide-up panel
     if (el.mobileToggleBtn) {
         el.mobileToggleBtn.addEventListener('click', () => {
-            const mapContainer = document.querySelector('.map-view-container');
-            const scrollPos = window.scrollY || document.documentElement.scrollTop;
-            const threshold = 180;
+            el.sidebar.classList.toggle('expanded');
+            const isExpanded = el.sidebar.classList.contains('expanded');
+            el.mobileToggleBtn.innerHTML = isExpanded
+                ? '<i class="fas fa-chevron-down"></i> <span>Hide Controls</span>'
+                : '<i class="fas fa-sliders"></i> <span>Show Controls</span>';
 
-            if (scrollPos > threshold) {
-                // Currently scrolled down to controls/feed -> Scroll up to map
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-                setTimeout(() => {
-                    if (AppState.map) AppState.map.invalidateSize();
-                }, 300);
-            } else {
-                // Currently at map -> Scroll down to controls
-                el.sidebar.scrollIntoView({ behavior: 'smooth' });
-            }
+            // Invalidate map size after drawer transition
+            setTimeout(() => {
+                if (AppState.map) AppState.map.invalidateSize();
+            }, 350);
         });
 
-        // Update mobile toggle button text & icon based on scroll position
-        window.addEventListener('scroll', () => {
-            if (window.innerWidth > 900) return;
-            const scrollPos = window.scrollY || document.documentElement.scrollTop;
-            if (scrollPos > 180) {
-                el.mobileToggleBtn.innerHTML = '<i class="fas fa-map"></i> <span>View Map</span>';
-            } else {
-                el.mobileToggleBtn.innerHTML = '<i class="fas fa-sliders"></i> <span>Edit Controls</span>';
+        // Click outside drawer to close on mobile
+        document.addEventListener('click', (e) => {
+            if (window.innerWidth <= 900 &&
+                el.sidebar.classList.contains('expanded') &&
+                !el.sidebar.contains(e.target) &&
+                !el.mobileToggleBtn.contains(e.target)) {
+                el.sidebar.classList.remove('expanded');
+                el.mobileToggleBtn.innerHTML = '<i class="fas fa-sliders"></i> <span>Show Controls</span>';
+                setTimeout(() => {
+                    if (AppState.map) AppState.map.invalidateSize();
+                }, 350);
             }
-        }, { passive: true });
+        });
     }
 
     // Responsive window resize & orientation change handler
