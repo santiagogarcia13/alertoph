@@ -155,6 +155,22 @@ function initMap() {
     }, null, { position: 'bottomright' }).addTo(AppState.map);
 
     AppState.map.on('click', handleMapClick);
+
+    // Mobile map initialization fix: ensure map tiles load correctly on mobile devices
+    setTimeout(() => {
+        if (AppState.map) {
+            AppState.map.invalidateSize();
+        }
+    }, 100);
+
+    // Additional invalidation after page fully loads (handles mobile layout shifts)
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            if (AppState.map) {
+                AppState.map.invalidateSize();
+            }
+        }, 250);
+    });
 }
 
 /* -------------------------------------------------------------
