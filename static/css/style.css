@@ -1501,39 +1501,46 @@ body {
         right: 0;
         width: 100%;
         height: auto;
-        max-height: 70vh;
+        max-height: 75vh;
         background: #ffffff;
         border-radius: 16px 16px 0 0;
         box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
         z-index: 900;
-        transform: translateY(calc(100% - 120px));
+        transform: translateY(calc(100% - 280px));
         transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
         overflow: hidden;
         order: 2;
+        cursor: pointer;
     }
 
     .sidebar.expanded {
         transform: translateY(0);
+        cursor: default;
     }
 
-    /* Drawer handle */
+    /* Drawer handle - more prominent */
     .sidebar::before {
         content: '';
         position: absolute;
-        top: 8px;
+        top: 12px;
         left: 50%;
         transform: translateX(-50%);
-        width: 40px;
-        height: 4px;
-        background: #cbd5e1;
-        border-radius: 2px;
+        width: 48px;
+        height: 5px;
+        background: #94a3b8;
+        border-radius: 3px;
         z-index: 10;
+        transition: background 0.2s;
+    }
+
+    .sidebar:not(.expanded)::before {
+        background: #64748b;
     }
 
     .tab-panel {
-        padding: 24px 16px 16px;
+        padding: 28px 16px 16px;
         gap: 14px;
-        max-height: calc(70vh - 40px);
+        max-height: calc(75vh - 40px);
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
     }

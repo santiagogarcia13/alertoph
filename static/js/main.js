@@ -344,17 +344,35 @@ function setupEventListeners() {
 
     // Mobile drawer toggle - zoom.earth style slide-up panel
     if (el.mobileToggleBtn) {
-        el.mobileToggleBtn.addEventListener('click', () => {
+        const toggleDrawer = () => {
             el.sidebar.classList.toggle('expanded');
             const isExpanded = el.sidebar.classList.contains('expanded');
             el.mobileToggleBtn.innerHTML = isExpanded
                 ? '<i class="fas fa-chevron-down"></i> <span>Hide Controls</span>'
-                : '<i class="fas fa-sliders"></i> <span>Show Controls</span>';
+                : '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
 
             // Invalidate map size after drawer transition
             setTimeout(() => {
                 if (AppState.map) AppState.map.invalidateSize();
             }, 350);
+        };
+
+        el.mobileToggleBtn.addEventListener('click', toggleDrawer);
+
+        // Tap drawer handle area to expand (top 40px of drawer when not expanded)
+        el.sidebar.addEventListener('click', (e) => {
+            if (window.innerWidth <= 900 && !el.sidebar.classList.contains('expanded')) {
+                const rect = el.sidebar.getBoundingClientRect();
+                const clickY = e.clientY - rect.top;
+                // Only expand if clicking top 40px (handle area)
+                if (clickY < 40) {
+                    el.sidebar.classList.add('expanded');
+                    el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-down"></i> <span>Hide Controls</span>';
+                    setTimeout(() => {
+                        if (AppState.map) AppState.map.invalidateSize();
+                    }, 350);
+                }
+            }
         });
 
         // Click outside drawer to close on mobile
@@ -364,7 +382,7 @@ function setupEventListeners() {
                 !el.sidebar.contains(e.target) &&
                 !el.mobileToggleBtn.contains(e.target)) {
                 el.sidebar.classList.remove('expanded');
-                el.mobileToggleBtn.innerHTML = '<i class="fas fa-sliders"></i> <span>Show Controls</span>';
+                el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
                 setTimeout(() => {
                     if (AppState.map) AppState.map.invalidateSize();
                 }, 350);
