@@ -12,7 +12,6 @@ AlertoPH is a web application that provides real-time hazard awareness for safer
 - **Earthquake Monitoring**: Real-time earthquake data from USGS filtered for the Philippines region
 - **Weather Monitoring**: Current weather conditions including rainfall, wind speed, and alerts
 - **Hazard-Aware Route Planning**: Calculate routes that avoid hazardous areas (earthquake zones, flood-prone areas)
-- **Bilingual Interface**: Toggle between English and Filipino languages
 - **Interactive Map**: Visualize routes, hazard zones, and locations using Leaflet.js
 - **Graceful Degradation**: System continues working even if individual APIs are unavailable
 
