@@ -114,6 +114,19 @@ document.addEventListener('DOMContentLoaded', () => {
     loadEarthquakes(2.0);
     loadRegionalWeather();
     checkSystemHealth();
+
+    // Mobile map fix: Force multiple invalidations on mobile devices
+    if (window.innerWidth <= 900) {
+        const mobileMapFix = () => {
+            if (AppState.map) {
+                AppState.map.invalidateSize();
+            }
+        };
+        setTimeout(mobileMapFix, 100);
+        setTimeout(mobileMapFix, 300);
+        setTimeout(mobileMapFix, 600);
+        setTimeout(mobileMapFix, 1000);
+    }
 });
 
 /* -------------------------------------------------------------
@@ -339,6 +352,9 @@ function setupEventListeners() {
             if (scrollPos > threshold) {
                 // Currently scrolled down to controls/feed -> Scroll up to map
                 window.scrollTo({ top: 0, behavior: 'smooth' });
+                setTimeout(() => {
+                    if (AppState.map) AppState.map.invalidateSize();
+                }, 300);
             } else {
                 // Currently at map -> Scroll down to controls
                 el.sidebar.scrollIntoView({ behavior: 'smooth' });
