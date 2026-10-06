@@ -381,8 +381,8 @@ function setupEventListeners() {
             const rect = el.sidebar.getBoundingClientRect();
             const touchY = e.touches[0].clientY - rect.top;
 
-            // Only handle touches on the handle area (top 32px)
-            if (touchY < 32 && !el.sidebar.classList.contains('expanded')) {
+            // Handle touches on the handle area (top 28px) for both collapsed and expanded states
+            if (touchY < 28) {
                 touchStartY = e.touches[0].clientY;
                 touchStartTime = Date.now();
                 isDragging = true;
@@ -395,10 +395,15 @@ function setupEventListeners() {
             const touchY = e.touches[0].clientY;
             const deltaY = touchStartY - touchY;
 
-            // Swipe up to expand
-            if (deltaY > 50) {
+            // Swipe up to expand when collapsed
+            if (!el.sidebar.classList.contains('expanded') && deltaY > 50) {
                 isDragging = false;
                 expandDrawer();
+            }
+            // Swipe down to collapse when expanded
+            else if (el.sidebar.classList.contains('expanded') && deltaY < -50) {
+                isDragging = false;
+                collapseDrawer();
             }
         }, { passive: true });
 
@@ -409,9 +414,17 @@ function setupEventListeners() {
             const deltaY = touchStartY - touchEndY;
             const deltaTime = Date.now() - touchStartTime;
 
-            // Quick swipe up or significant drag
-            if ((deltaTime < 300 && deltaY > 20) || deltaY > 50) {
-                expandDrawer();
+            // Quick swipe or significant drag
+            if (!el.sidebar.classList.contains('expanded')) {
+                // Expand: swipe up
+                if ((deltaTime < 300 && deltaY > 20) || deltaY > 50) {
+                    expandDrawer();
+                }
+            } else {
+                // Collapse: swipe down
+                if ((deltaTime < 300 && deltaY < -20) || deltaY < -50) {
+                    collapseDrawer();
+                }
             }
 
             isDragging = false;

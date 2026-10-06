@@ -1501,12 +1501,12 @@ body {
         right: 0;
         width: 100%;
         height: auto;
-        max-height: 75vh;
+        max-height: 70vh;
         background: #ffffff;
-        border-radius: 16px 16px 0 0;
-        box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+        border-radius: 12px 12px 0 0;
+        box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.12);
         z-index: 900;
-        transform: translateY(calc(100% - 280px));
+        transform: translateY(calc(100% - 140px));
         transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
         overflow: hidden;
         order: 2;
@@ -1521,20 +1521,20 @@ body {
     .sidebar::before {
         content: '';
         position: absolute;
-        top: 12px;
+        top: 8px;
         left: 50%;
         transform: translateX(-50%);
-        width: 48px;
-        height: 5px;
-        background: #94a3b8;
-        border-radius: 3px;
+        width: 40px;
+        height: 4px;
+        background: #cbd5e1;
+        border-radius: 2px;
         z-index: 10;
         transition: background 0.2s;
         pointer-events: none;
     }
 
     .sidebar:not(.expanded)::before {
-        background: #64748b;
+        background: #94a3b8;
     }
 
     /* Drawer handle hit area */
@@ -1544,20 +1544,21 @@ body {
         top: 0;
         left: 0;
         right: 0;
-        height: 32px;
+        height: 28px;
         z-index: 5;
         cursor: pointer;
         touch-action: manipulation;
     }
 
     .sidebar.expanded::after {
-        pointer-events: none;
+        height: 28px;
+        pointer-events: all;
     }
 
     .tab-panel {
-        padding: 28px 16px 16px;
-        gap: 14px;
-        max-height: calc(75vh - 40px);
+        padding: 22px 14px 14px;
+        gap: 12px;
+        max-height: calc(70vh - 40px);
         overflow-y: auto;
         -webkit-overflow-scrolling: touch;
     }
@@ -1566,27 +1567,51 @@ body {
     .input-wrapper input,
     .search-form-card input,
     .coord-grid input {
-        font-size: 16px !important;
-        padding: 12px 14px;
-        min-height: 44px;
+        font-size: 15px !important;
+        padding: 8px 12px;
+        min-height: 38px;
     }
 
     .input-action-btn {
-        min-width: 40px;
-        min-height: 40px;
+        min-width: 36px;
+        min-height: 36px;
         display: flex;
         align-items: center;
         justify-content: center;
     }
 
     .btn {
-        min-height: 44px;
-        font-size: 0.92rem;
+        min-height: 40px;
+        font-size: 0.88rem;
     }
 
     .btn-sm {
-        min-height: 36px;
-        padding: 6px 12px;
+        min-height: 32px;
+        padding: 4px 10px;
+        font-size: 0.8rem;
+    }
+
+    .panel-header {
+        margin-bottom: 8px;
+    }
+
+    .panel-header h2 {
+        font-size: 1rem;
+        margin-bottom: 2px;
+    }
+
+    .panel-desc {
+        display: none;
+    }
+
+    .route-inputs-card {
+        padding: 10px;
+        gap: 8px;
+    }
+
+    .input-field label {
+        font-size: 0.75rem;
+        margin-bottom: 3px;
     }
 
     .map-pick-row {
@@ -1647,21 +1672,21 @@ body {
     .mobile-toggle-btn {
         display: inline-flex;
         position: fixed;
-        bottom: 140px;
+        bottom: 155px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(255, 255, 255, 0.98);
-        color: var(--text-main);
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        padding: 10px 20px;
+        background: rgba(15, 23, 42, 0.85);
+        color: #ffffff;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        padding: 6px 14px;
         border-radius: var(--radius-full);
-        font-weight: 600;
-        font-size: 0.85rem;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+        font-weight: 500;
+        font-size: 0.75rem;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
         z-index: 950;
         cursor: pointer;
         align-items: center;
-        gap: 8px;
+        gap: 6px;
         white-space: nowrap;
         touch-action: manipulation;
         transition: all 0.2s ease;
@@ -1674,7 +1699,7 @@ body {
     }
 
     .mobile-toggle-btn i {
-        font-size: 0.9rem;
+        font-size: 0.75rem;
     }
 
     /* Panel header styling */
