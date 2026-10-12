@@ -26,7 +26,10 @@ const AppState = {
     weatherStations: [],
     currentAdvisory: null,
     currentRoute: null,
-    mapPickingMode: null
+    mapPickingMode: null,
+    // Store actual coordinates for reliable routing
+    originCoords: null,
+    destCoords: null
 };
 
 // DOM References
@@ -507,6 +510,8 @@ function setOriginPoint(lat, lng, label) {
         })
     }).addTo(AppState.map);
 
+    // Store coordinates in state for reliable routing
+    AppState.originCoords = { lat, lng };
     el.originInput.value = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
@@ -524,6 +529,8 @@ function setDestinationPoint(lat, lng, label) {
         })
     }).addTo(AppState.map);
 
+    // Store coordinates in state for reliable routing
+    AppState.destCoords = { lat, lng };
     el.destinationInput.value = label || `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
@@ -558,6 +565,11 @@ function clearRoutePoints() {
         AppState.mapLayers.destMarker = null;
     }
     clearRouteLayers();
+
+    // Clear stored coordinates
+    AppState.originCoords = null;
+    AppState.destCoords = null;
+
     el.originInput.value = '';
     el.destinationInput.value = '';
     el.routeSummaryCard.style.display = 'none';
@@ -703,13 +715,21 @@ async function calculateRoute() {
     el.calculateRouteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculating Safe Route...';
     clearAllAutocomplete();
 
-    const originCoords = await resolveInputCoords(origVal);
-    const destCoords = await resolveInputCoords(destVal);
+    // Use stored coordinates if available (from GPS or map picking), otherwise geocode
+    let originCoords = AppState.originCoords;
+    let destCoords = AppState.destCoords;
+
+    if (!originCoords) {
+        originCoords = await resolveInputCoords(origVal);
+    }
+    if (!destCoords) {
+        destCoords = await resolveInputCoords(destVal);
+    }
 
     if (!originCoords || !destCoords) {
         el.calculateRouteBtn.disabled = false;
         el.calculateRouteBtn.innerHTML = '<i class="fas fa-shield"></i> Calculate Safe Route';
-        alert('Could not pinpoint coordinates for origin or destination. Please choose a suggestion from search.');
+        alert('Could not pinpoint coordinates for origin or destination. Please choose a suggestion from search or use the map picker.');
         return;
     }
 
