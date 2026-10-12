@@ -938,7 +938,18 @@ function renderEarthquakesOnMap(quakes) {
 function focusEarthquake(lat, lng, mag) {
     switchMode('earthquake');
     if (window.innerWidth <= 900) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Scroll to map first, then collapse drawer for better visibility
+        const mapContainer = document.getElementById('map');
+        if (mapContainer) {
+            mapContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        // Collapse drawer after a brief delay to show the map
+        setTimeout(() => {
+            if (el.sidebar && el.sidebar.classList.contains('expanded')) {
+                el.sidebar.classList.remove('expanded');
+                el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
+            }
+        }, 300);
     }
     AppState.map.flyTo([lat, lng], 9, { duration: 1.2 });
 }
@@ -951,8 +962,30 @@ function loadRegionalWeather() {
         el.weatherStationList.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Fetching Philippine weather stations...</div>';
     }
 
-    fetch('/api/weather/regional')
-        .then(r => r.json())
+    // Disable refresh button during fetch
+    if (el.refreshWeatherBtn) {
+        el.refreshWeatherBtn.disabled = true;
+        el.refreshWeatherBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    }
+
+    // Create abort controller for timeout handling (30 second timeout for mobile)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    fetch('/api/weather/regional', {
+        signal: controller.signal,
+        headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'no-cache'
+        }
+    })
+        .then(r => {
+            clearTimeout(timeoutId);
+            if (!r.ok) {
+                throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+            }
+            return r.json();
+        })
         .then(data => {
             AppState.weatherStations = data.stations || [];
             filterAndRenderWeather();
@@ -964,11 +997,35 @@ function loadRegionalWeather() {
             updateHealthChip(el.chipWeather, true);
         })
         .catch(err => {
+            clearTimeout(timeoutId);
             console.error('Weather stations error:', err);
+
+            let errorMsg = 'Failed to load weather stations.';
+            if (err.name === 'AbortError') {
+                errorMsg = 'Request timeout. Please check your connection and try again.';
+            } else if (err.message.includes('Failed to fetch')) {
+                errorMsg = 'Network error. Please check your internet connection.';
+            }
+
             if (el.weatherStationList) {
-                el.weatherStationList.innerHTML = '<div class="error-state">Failed to load weather stations.</div>';
+                el.weatherStationList.innerHTML = `
+                    <div class="error-state">
+                        <i class="fas fa-exclamation-triangle" style="font-size:1.5rem; margin-bottom:8px; color:#ef4444;"></i><br>
+                        ${errorMsg}
+                        <button onclick="loadRegionalWeather()" style="margin-top:12px; padding:8px 16px; background:#3b82f6; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">
+                            <i class="fas fa-rotate-right"></i> Retry
+                        </button>
+                    </div>
+                `;
             }
             updateHealthChip(el.chipWeather, false);
+        })
+        .finally(() => {
+            // Re-enable refresh button
+            if (el.refreshWeatherBtn) {
+                el.refreshWeatherBtn.disabled = false;
+                el.refreshWeatherBtn.innerHTML = '<i class="fas fa-rotate-right"></i>';
+            }
         });
 }
 
@@ -1142,7 +1199,18 @@ function renderWeatherStationsOnMap(stations) {
 function focusStation(lat, lng) {
     switchMode('weather');
     if (window.innerWidth <= 900) {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Scroll to map first, then collapse drawer for better visibility
+        const mapContainer = document.getElementById('map');
+        if (mapContainer) {
+            mapContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        // Collapse drawer after a brief delay to show the map
+        setTimeout(() => {
+            if (el.sidebar && el.sidebar.classList.contains('expanded')) {
+                el.sidebar.classList.remove('expanded');
+                el.mobileToggleBtn.innerHTML = '<i class="fas fa-chevron-up"></i> <span>Expand Controls</span>';
+            }
+        }, 300);
     }
     AppState.map.flyTo([lat, lng], 10, { duration: 1.2 });
 }
