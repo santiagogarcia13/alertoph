@@ -330,10 +330,6 @@ function setupEventListeners() {
         AppState.map.setView(AppState.phCenter, AppState.defaultZoom);
     });
 
-    if (el.mapRadarToggle) {
-        el.mapRadarToggle.addEventListener('click', toggleRainRadar);
-    }
-
     el.mapLegendToggle.addEventListener('click', () => {
         const isVisible = el.mapLegendCard.style.display !== 'none';
         el.mapLegendCard.style.display = isVisible ? 'none' : 'flex';
