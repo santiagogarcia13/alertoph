@@ -984,13 +984,9 @@ function loadRegionalWeather() {
         el.refreshWeatherBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
     }
 
-    // Detect mobile and adjust timeout accordingly (60 seconds for mobile, 30 for desktop)
-    const isMobile = window.innerWidth <= 900;
-    const timeoutMs = isMobile ? 60000 : 30000;
-
-    // Create abort controller for timeout handling
+    // Create abort controller for timeout handling (30 second timeout for mobile)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
 
     fetch('/api/weather/regional', {
         signal: controller.signal,
@@ -1008,12 +1004,6 @@ function loadRegionalWeather() {
         })
         .then(data => {
             AppState.weatherStations = data.stations || [];
-
-            // Show success message on mobile for slow connections
-            if (isMobile && AppState.weatherStations.length > 0) {
-                console.log(`Successfully loaded ${AppState.weatherStations.length} weather stations`);
-            }
-
             filterAndRenderWeather();
 
             if (AppState.activeTab === 'weather') {
@@ -1027,27 +1017,17 @@ function loadRegionalWeather() {
             console.error('Weather stations error:', err);
 
             let errorMsg = 'Failed to load weather stations.';
-            let troubleshootMsg = '';
-
             if (err.name === 'AbortError') {
-                errorMsg = 'Request timeout. Your connection may be slow.';
-                troubleshootMsg = isMobile
-                    ? '<br><small>Try connecting to WiFi for faster loading.</small>'
-                    : '<br><small>Check your internet connection.</small>';
+                errorMsg = 'Request timeout. Please check your connection and try again.';
             } else if (err.message.includes('Failed to fetch')) {
-                errorMsg = 'Network error. Cannot reach weather service.';
-                troubleshootMsg = '<br><small>Check your internet connection and try again.</small>';
-            } else if (err.message.includes('HTTP 5')) {
-                errorMsg = 'Weather service temporarily unavailable.';
-                troubleshootMsg = '<br><small>Our servers may be overloaded. Please try again in a moment.</small>';
+                errorMsg = 'Network error. Please check your internet connection.';
             }
 
             if (el.weatherStationList) {
                 el.weatherStationList.innerHTML = `
                     <div class="error-state">
                         <i class="fas fa-exclamation-triangle" style="font-size:1.5rem; margin-bottom:8px; color:#ef4444;"></i><br>
-                        <strong>${errorMsg}</strong>
-                        ${troubleshootMsg}
+                        ${errorMsg}
                         <button onclick="loadRegionalWeather()" style="margin-top:12px; padding:8px 16px; background:#3b82f6; color:#fff; border:none; border-radius:6px; cursor:pointer; font-weight:600;">
                             <i class="fas fa-rotate-right"></i> Retry
                         </button>
