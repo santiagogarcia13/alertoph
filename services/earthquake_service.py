@@ -11,6 +11,8 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_RADIUS_KM = 200.0
+
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """
@@ -23,7 +25,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     # Haversine formula
     dlon = lon2 - lon1
     dlat = lat2 - lat1
-    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
     c = 2 * asin(sqrt(a))
     r = 6371  # Radius of earth in kilometers
 
@@ -33,7 +35,7 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 def fetch_recent_earthquakes(
     lat: Optional[float] = None,
     lon: Optional[float] = None,
-    radius_km: float = 200.0,
+    radius_km: Optional[float] = DEFAULT_RADIUS_KM,
     time_window_hours: Optional[int] = None,
     scope: str = 'ph',
     min_magnitude: float = 2.0
@@ -47,16 +49,24 @@ def fetch_recent_earthquakes(
         radius_km: Search radius in kilometers (default: 200km)
         time_window_hours: Hours to look back (default from config, e.g. 24, 168 for 7d, 720 for 30d)
         scope: 'ph' for Philippine bounding box or 'global' for worldwide/Ring of Fire
-        min_magnitude: Minimum magnitude filter
+        min_magnitude: Minimum magnitude filter (applied by USGS)
 
     Returns:
-        List of earthquake data dictionaries
+        List of earthquake data dictionaries, strongest first.
+        NOTE: no hazard-threshold filtering happens here; callers that
+        need "significant" quakes only should filter themselves.
     """
     try:
+        # The route may pass radius_km=None, so fall back to the default
+        if radius_km is None:
+            radius_km = DEFAULT_RADIUS_KM
+
         # Calculate time window
         hours = time_window_hours or Config.EARTHQUAKE_TIME_WINDOW_HOURS
         end_time = datetime.now(timezone.utc)
         start_time = end_time - timedelta(hours=hours)
+
+        has_point = lat is not None and lon is not None
 
         # Build USGS API query parameters
         params = {
@@ -69,7 +79,7 @@ def fetch_recent_earthquakes(
         }
 
         # If lat/lon provided, use circular search
-        if lat and lon:
+        if has_point:
             params.update({
                 'latitude': lat,
                 'longitude': lon,
@@ -96,18 +106,25 @@ def fetch_recent_earthquakes(
 
         data = response.json()
 
-        if data.get('metadata', {}).get('count', 0) == 0:
+        # NOTE: don't rely on metadata['count']; USGS omits it when 'limit'
+        # is used. Count the features instead.
+        features = data.get('features', [])
+        if not features:
             logger.info("No earthquakes found in the specified area/time")
             return []
 
         earthquakes = []
 
-        for feature in data.get('features', []):
+        for feature in features:
             props = feature.get('properties', {})
             geometry = feature.get('geometry', {})
             coordinates = geometry.get('coordinates', [])
 
             if not coordinates or len(coordinates) < 3:
+                continue
+
+            # Skip events with no magnitude (USGS can return null)
+            if props.get('mag') is None:
                 continue
 
             # USGS coordinates are [longitude, latitude, depth]
@@ -128,22 +145,19 @@ def fetch_recent_earthquakes(
             }
 
             # Calculate distance if reference point provided
-            if lat and lon:
+            if has_point:
                 earthquake['distance_km'] = haversine_distance(
                     lat, lon, latitude, longitude
                 )
 
             earthquakes.append(earthquake)
 
-        # Sort by magnitude (highest first) and filter for significant ones
-        significant_earthquakes = [
-            eq for eq in earthquakes
-            if eq['magnitude'] >= Config.EARTHQUAKE_MAG_THRESHOLD
-        ]
-        significant_earthquakes.sort(key=lambda x: x['magnitude'], reverse=True)
+        # Strongest first. (For a map you may prefer newest first:
+        # key=lambda x: x['time'])
+        earthquakes.sort(key=lambda x: x['magnitude'], reverse=True)
 
-        logger.info(f"Found {len(significant_earthquakes)} significant earthquakes")
-        return significant_earthquakes
+        logger.info(f"Found {len(earthquakes)} earthquakes")
+        return earthquakes
 
     except requests.exceptions.RequestException as e:
         logger.error(f"Error fetching earthquake data: {e}")
@@ -156,7 +170,7 @@ def fetch_recent_earthquakes(
 def get_nearest_earthquake(
     lat: float,
     lon: float,
-    radius_km: float = 200.0
+    radius_km: float = DEFAULT_RADIUS_KM
 ) -> Optional[Dict[str, Any]]:
     """
     Get the nearest significant earthquake to a location.
@@ -169,7 +183,12 @@ def get_nearest_earthquake(
     Returns:
         Nearest earthquake data or None
     """
-    earthquakes = fetch_recent_earthquakes(lat, lon, radius_km)
+    # The hazard threshold lives here (not in fetch_recent_earthquakes)
+    # so the map can show quakes of any magnitude the user selects.
+    earthquakes = [
+        eq for eq in fetch_recent_earthquakes(lat, lon, radius_km)
+        if eq['magnitude'] >= Config.EARTHQUAKE_MAG_THRESHOLD
+    ]
 
     if not earthquakes:
         return None
@@ -196,6 +215,10 @@ def is_hazardous_earthquake(earthquake: Dict[str, Any]) -> bool:
 
     magnitude = earthquake.get('magnitude')
     distance_km = earthquake.get('distance_km')
+
+    # No magnitude means we can't judge it
+    if magnitude is None:
+        return False
 
     # Check magnitude threshold
     if magnitude < Config.EARTHQUAKE_MAG_THRESHOLD:
@@ -225,7 +248,7 @@ if __name__ == '__main__':
     try:
         print("Testing earthquake service...")
         quakes = fetch_recent_earthquakes(test_lat, test_lon, radius_km=200)
-        print(f"Found {len(quakes)} significant earthquakes near Manila:")
+        print(f"Found {len(quakes)} earthquakes near Manila:")
         for quake in quakes[:3]:  # Show first 3
             print(f"  Magnitude {quake['magnitude']} at {quake['place']}")
             print(f"  Distance: {quake.get('distance_km', 'N/A')} km")

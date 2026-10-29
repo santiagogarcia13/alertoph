@@ -873,7 +873,7 @@ function drawRouteOnMap(routeData) {
 function loadEarthquakes(minMag = 2.0) {
     el.earthquakeFeed.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading USGS feed...</div>';
 
-    fetch(`/api/earthquakes?min_mag=${minMag}`)
+    fetch(`/api/earthquakes?min_mag=${minMag}&scope=ph&days=30`)
         .then(r => r.json())
         .then(data => {
             AppState.earthquakes = data.earthquakes || [];

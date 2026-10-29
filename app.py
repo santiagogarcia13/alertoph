@@ -953,4 +953,4 @@ def server_error(error):
     return jsonify({'error': 'Internal server error'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=Config.DEBUG)
+    app.run(debug=Config.DEBUG, use_reloader=False)
